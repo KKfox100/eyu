@@ -23,7 +23,8 @@
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | **Phase 1** | 基础设施：Vite + Vue 3 + Tailwind + PWA、Worker 路由、D1 Schema、JWT 鉴权、SM-2 引擎、今日队列、基础学习闭环、统计热力图 | ✅ 已完成并上线 |
-| Phase 2 | 卡片滑动/翻转强化、完形填空、语序重组、Web Speech 口语测评 | ⏳ 待开始 |
+| **Phase 2a** | 完形填空 + 语序重组（复习卡自动出题、判分即评级） | ✅ 已完成并上线 |
+| Phase 2b | Web Speech 口语测评（朗读匹配） | ⏳ 待开始 |
 | Phase 3 | AI 智能剪藏解析、Cron 打卡提醒、数据导出 | ⏳ 待开始 |
 
 ---
@@ -49,8 +50,9 @@ e语/
 ├─ frontend/                 # Cloudflare Pages 项目
 │  ├─ src/
 │  │  ├─ views/              # Login / Today / Study / Stats / Library / Me
-│  │  ├─ components/         # StudyCard（3D 翻转）、Heatmap、BottomNav
+│  │  ├─ components/         # StudyCard（3D 翻转）、ExerciseCard（填空 / 语序）、Heatmap、BottomNav
 │  │  ├─ lib/api.ts          # 带类型的 API 客户端
+│  │  ├─ lib/prefs.ts        # 本地偏好（复习是否用练习题）
 │  │  └─ stores/auth.ts      # 登录态
 │  ├─ functions/api/[[path]].ts  # Pages Functions：/api/* 同源代理到 Worker
 │  ├─ public/                # favicon + PWA 图标 + _routes.json
@@ -59,6 +61,7 @@ e语/
 │  ├─ src/
 │  │  ├─ index.ts            # 路由挂载 + CORS + 错误处理
 │  │  ├─ lib/sm2.ts          # ★ SM-2 核心算法（纯函数，可单测）
+│  │  ├─ lib/exercise.ts     # ★ 练习题生成（挖空 / 打乱 / 干扰项，纯函数）
 │  │  ├─ lib/jwt.ts          # HS256 签发/校验
 │  │  ├─ lib/password.ts     # PBKDF2 哈希
 │  │  ├─ middleware/auth.ts  # Bearer 鉴权 + KV 会话校验
@@ -68,10 +71,11 @@ e语/
 │  ├─ seeds/                 # 扩充词库：words-2 / words-3 / chunks-2 / grammar-2（共 340 张）
 │  ├─ migrations/            # 增量迁移（如存量用户每日额度 10 → 20）
 │  ├─ wrangler.toml          # ★ Worker / D1 / KV 配置
-│  └─ test/sm2.test.ts       # 12 个算法用例
+│  └─ test/                  # sm2 + exercise 共 25 个用例
 └─ scripts/
    ├─ setup-cloudflare.mjs   # 一键建库 + 回填 ID + 灌数据 + 写机密
    ├─ apply-sql.mjs          # 按顺序幂等应用全部 SQL（本地 / --remote）
+   ├─ check-exercise.mjs     # 抽样打印生成的练习题，人工看挖空/切词对不对
    └─ smoke-test.mjs         # 线上冒烟测试（注册→队列→评级→统计→加练→登出）
 ```
 
@@ -178,6 +182,7 @@ CORS_ORIGINS = "https://eyu.pages.dev,https://你的自定义域名"
 | GET | `/api/auth/me` | 当前用户 |
 | PATCH | `/api/auth/me` | 修改每日上限 / 时区 / 昵称 |
 | GET | `/api/study/queue?limit=30&extra=0` | 今日队列：**到期复习优先，再按频次发新词**；`extra=1` 为加练 |
+| GET | `/api/study/exercise?userCardId=…&mode=auto` | 生成练习题（`auto` / `cloze` / `order`）；出不了题返回 `available:false` |
 | POST | `/api/study/review` | 提交评级 `{ userCardId, rating, mode, elapsedMs }` |
 | GET | `/api/study/cards` | 词库浏览（分页 / 类型 / 关键词） |
 | GET | `/api/stats/overview?days=90` | 今日进度、连续天数、总量、热力图 |
@@ -220,6 +225,36 @@ CORS_ORIGINS = "https://eyu.pages.dev,https://你的自定义域名"
 
 ---
 
+## 练习题是怎么生成的
+
+复习卡（`reps > 0`）进入学习页时，前端问一句 `GET /api/study/exercise?mode=auto`，
+后端从**例句里现做一道题**，不需要额外的人工题库。新卡不走这条路 —— 第一次见还是先看翻转卡。
+
+| 题型 | 适用 | 怎么出 |
+| --- | --- | --- |
+| **完形填空** `cloze` | 单词、语块 | 在例句里定位目标词/语块挖成 `____`，给 4 个选项 |
+| **语序重组** `order` | 全部类型 | 例句切词打乱，点词块排回原序 |
+
+几个刻意的取舍：
+
+- **语法卡不做完形**。它的 `content` 是 `It takes sb. + 时间 + to do sth.` 这种骨架，在例句里根本不是字面串，挖空只会挖出个空。
+- **词形变化靠词形表，不靠前缀猜**。`get → getting`、`study → studied`、`run → running` 都能认出来；猜前缀既会漏（长度差 4）又会误伤（`get → getter`）。
+- **空格揭晓时填原句的真实形态**。例句是「It **takes** 20 minutes」，选项给原形 `take`，填回空格的是 `takes`，并附一行「原句里写作 takes」—— 否则句子会变成病句。
+- **干扰项按词性过滤**。词库里 280 个词都带 `v. / adj. / n.` 前缀，选项只在同词性里挑，再按长度接近排序。不这么做的话，「Can I ____ your charger?」的选项里会冒出个 `idea`，答案等于白送。
+- **出不了题就退回翻转卡**。匹配不上、句子太短（语序重组要求 ≥ 5 个词块）或太长（> 14）一律返回 `available:false`，宁可不练也不出废题。
+
+**判分即评级**：答对记「掌握」(2)，答错记「模糊」(1)。不用 `0`（忘记）是因为一次手滑就重置阶段太重。
+「我的 → 复习用练习题」可以整体关掉，退回纯翻转卡。
+
+抽样检查生成质量：
+
+```bash
+node scripts/check-exercise.mjs          # 注册新号 → 学 30 张 → 逐张打印题目
+SAMPLE=20 node scripts/check-exercise.mjs
+```
+
+---
+
 ## 数据库
 
 4 张表 + 1 个视图，详见 `worker/schema.sql`：
@@ -246,8 +281,8 @@ CORS_ORIGINS = "https://eyu.pages.dev,https://你的自定义域名"
 
 ---
 
-## Phase 2 / 3 预留
+## 下一步预留
 
-- 前端 `StudyView` 的 `mode` 字段已支持 `recall | cloze | order | speak`，Phase 2 直接扩展测验组件即可，服务端无需改表。
+- `review_logs.mode` 已能记 `recall | cloze | order | speak`；口语测评（`speak`）只需再加一个题型组件，服务端无需改表。
 - `worker/src/index.ts` 已导出 `scheduled()` 处理器，Phase 3 打开 `wrangler.toml` 里的 `[triggers]` 即可接 Cron。
 - `cards_master.source` / `owner_id` 已为 AI 剪藏产物留好位置。

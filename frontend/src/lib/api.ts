@@ -123,6 +123,33 @@ export interface QueueResponse {
   };
 }
 
+export type ExerciseMode = 'cloze' | 'order';
+
+export interface ClozeExercise {
+  mode: 'cloze';
+  sentence: string;
+  answer: string;
+  /** 原句里的真实形态（takes / getting），揭晓时填回空格 */
+  answerForm: string;
+  options: string[];
+  zh: string | null;
+  scene: string | null;
+}
+
+export interface OrderExercise {
+  mode: 'order';
+  shuffled: string[];
+  answerTokens: string[];
+  zh: string | null;
+  scene: string | null;
+}
+
+export type Exercise = ClozeExercise | OrderExercise;
+
+export type ExerciseResponse =
+  | { available: true; exercise: Exercise }
+  | { available: false; reason: string };
+
 export interface ReviewResponse {
   card: {
     userCardId: string;
@@ -187,6 +214,9 @@ export const api = {
 
   queue: (limit = 30, extra = false) =>
     request<QueueResponse>(`/api/study/queue?limit=${limit}${extra ? '&extra=1' : ''}`),
+
+  exercise: (userCardId: string, mode: 'auto' | ExerciseMode = 'auto') =>
+    request<ExerciseResponse>(`/api/study/exercise?userCardId=${encodeURIComponent(userCardId)}&mode=${mode}`),
 
   review: (body: { userCardId: string; rating: 0 | 1 | 2 | 3; mode?: string; elapsedMs?: number }) =>
     request<ReviewResponse>('/api/study/review', { method: 'POST', body }),

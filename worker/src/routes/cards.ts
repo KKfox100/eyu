@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import type { AuthUser, DueCardRow, Rating, UserCardRow } from '../types';
+import type { AuthUser, CardType, DueCardRow, Rating, UserCardRow } from '../types';
 import { jsonError, jsonOk, intParam, localDateKey, newId } from '../lib/http';
 import { describeInterval, schedule } from '../lib/sm2';
+import { buildCloze, buildOptions, buildOrder, posOf } from '../lib/exercise';
 import { requireAuth, type AppEnv } from '../middleware/auth';
 
 const app = new Hono<AppEnv>();
@@ -175,6 +176,81 @@ app.get('/queue', requireAuth, async (c) => {
       dailyReviewLimit: user.dailyReviewLimit,
     },
   });
+});
+
+/**
+ * GET /api/study/exercise?userCardId=xxx&mode=auto|cloze|order
+ * 为一轮复习生成练习题。任何一步失败都返回 available:false，前端退回翻转卡。
+ */
+app.get('/exercise', requireAuth, async (c) => {
+  const user = c.get('user') as AuthUser;
+  const userCardId = c.req.query('userCardId') ?? '';
+  if (!userCardId) return jsonError(c, 400, 'missing_card', '缺少卡片标识');
+
+  const requested = c.req.query('mode') ?? 'auto';
+  const mode = ['auto', 'cloze', 'order'].includes(requested) ? requested : 'auto';
+
+  const row = await c.env.DB.prepare(
+    `SELECT cm.id, cm.type, cm.content, cm.definition, cm.examples_json
+       FROM user_cards uc
+       JOIN cards_master cm ON cm.id = uc.card_id
+      WHERE uc.id = ?1 AND uc.user_id = ?2`
+  )
+    .bind(userCardId, user.id)
+    .first<{
+      id: string;
+      type: CardType;
+      content: string;
+      definition: string;
+      examples_json: string | null;
+    }>();
+
+  if (!row) return jsonError(c, 404, 'card_not_found', '卡片不存在或不属于当前用户');
+
+  const examples = parseExamples(row.examples_json);
+  const card = { content: row.content, type: row.type };
+
+  /** auto：语法卡做语序（骨架没法挖空），词汇卡六成做填空 */
+  const preferred = mode as 'cloze' | 'order';
+  const plan: Array<'cloze' | 'order'> =
+    mode === 'auto'
+      ? row.type === 'grammar'
+        ? ['order']
+        : Math.random() < 0.6
+          ? ['cloze', 'order']
+          : ['order', 'cloze']
+      : [preferred, preferred === 'cloze' ? 'order' : 'cloze'];
+
+  for (const candidate of plan) {
+    if (candidate === 'cloze') {
+      const built = buildCloze(examples, card);
+      if (!built) continue;
+
+      // 干扰项从同类型卡片里随机取，长度接近的优先（buildOptions 内部排序）。
+      // 单词再按词性过滤一遍 —— 否则 "Can I ____ your charger?" 的选项里冒出个 idea，
+      // 答案等于白送。
+      const poolRows = await c.env.DB.prepare(
+        `SELECT content, definition FROM cards_master
+          WHERE type = ?1 AND id <> ?2 AND (owner_id IS NULL OR owner_id = ?3)
+          ORDER BY RANDOM() LIMIT 60`
+      )
+        .bind(row.type, row.id, user.id)
+        .all<{ content: string; definition: string }>();
+
+      const all = poolRows.results ?? [];
+      const targetPos = posOf(row.definition);
+      const samePos = targetPos ? all.filter((r) => posOf(r.definition) === targetPos) : [];
+      const pool = (samePos.length >= 3 ? samePos : all).map((r) => r.content);
+
+      const options = buildOptions(built.answer, pool);
+      return jsonOk(c, { available: true, exercise: { ...built, options } });
+    }
+
+    const built = buildOrder(examples);
+    if (built) return jsonOk(c, { available: true, exercise: built });
+  }
+
+  return jsonOk(c, { available: false, reason: 'no_usable_example' });
 });
 
 /**

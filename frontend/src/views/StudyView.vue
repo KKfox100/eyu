@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, ApiError, type QueueResponse, type StudyCard } from '../lib/api';
+import { api, ApiError, type Exercise, type QueueResponse, type StudyCard } from '../lib/api';
+import { readPracticePref } from '../lib/prefs';
 import StudyCardView from '../components/StudyCard.vue';
+import ExerciseCard from '../components/ExerciseCard.vue';
 
 const router = useRouter();
 
@@ -15,6 +17,14 @@ const error = ref<string | null>(null);
 const finished = ref(false);
 const isExtra = ref(false);
 const summary = ref<QueueResponse['summary'] | null>(null);
+
+/** 练习题：只有复习卡（非新卡）才出题，新卡仍然先看翻转卡建立第一印象 */
+const practice = ref<Exercise | null>(null);
+const practiceLoading = ref(false);
+const practiceResult = ref<{ correct: boolean } | null>(null);
+const practiceEnabled = readPracticePref();
+/** userCardId → 题目（null 表示这道卡出不了题，别再问第二次） */
+const exerciseCache = new Map<string, Exercise | null>();
 
 const tally = ref({ forgot: 0, hard: 0, good: 0, easy: 0 });
 const startedAt = ref(Date.now());
@@ -38,6 +48,53 @@ const ratings = [
   { value: 3 as const, label: '熟知', hint: '跳一级', cls: 'bg-sky-500 active:bg-sky-600' },
 ];
 
+async function getExercise(card: StudyCard): Promise<Exercise | null> {
+  if (exerciseCache.has(card.userCardId)) return exerciseCache.get(card.userCardId) ?? null;
+  if (!practiceEnabled || card.isNew) {
+    exerciseCache.set(card.userCardId, null);
+    return null;
+  }
+  try {
+    const res = await api.exercise(card.userCardId, 'auto');
+    const exercise = res.available ? res.exercise : null;
+    exerciseCache.set(card.userCardId, exercise);
+    return exercise;
+  } catch {
+    // 出题失败不该挡住学习，静默退回翻转卡
+    exerciseCache.set(card.userCardId, null);
+    return null;
+  }
+}
+
+function prefetch(position: number) {
+  const card = queue.value[position];
+  if (!card || card.isNew || exerciseCache.has(card.userCardId)) return;
+  void getExercise(card);
+}
+
+async function enterCard() {
+  const card = current.value;
+  practice.value = null;
+  practiceResult.value = null;
+  lastFeedback.value = null;
+  flipped.value = false;
+  startedAt.value = Date.now();
+  if (!card) return;
+
+  if (!practiceEnabled || card.isNew) {
+    practiceLoading.value = false;
+    return;
+  }
+
+  practiceLoading.value = true;
+  const exercise = await getExercise(card);
+  // 等网络这段时间用户可能已经退出或跳过
+  if (current.value?.userCardId !== card.userCardId) return;
+  practice.value = exercise;
+  practiceLoading.value = false;
+  prefetch(index.value + 1);
+}
+
 async function loadQueue(extra = false) {
   loading.value = true;
   error.value = null;
@@ -47,15 +104,25 @@ async function loadQueue(extra = false) {
     summary.value = data.summary;
     isExtra.value = extra;
     index.value = 0;
-    flipped.value = false;
-    finished.value = data.queue.length === 0;
+    exerciseCache.clear();
     tally.value = { forgot: 0, hard: 0, good: 0, easy: 0 };
-    startedAt.value = Date.now();
+    finished.value = data.queue.length === 0;
+    if (!finished.value) await enterCard();
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : '加载队列失败';
   } finally {
     loading.value = false;
   }
+}
+
+function advance() {
+  index.value += 1;
+  if (index.value >= total.value) {
+    finished.value = true;
+    practice.value = null;
+    return;
+  }
+  void enterCard();
 }
 
 async function rate(rating: 0 | 1 | 2 | 3) {
@@ -80,10 +147,40 @@ async function rate(rating: 0 | 1 | 2 | 3) {
       rating,
     };
 
-    index.value += 1;
-    flipped.value = false;
-    startedAt.value = Date.now();
-    if (index.value >= total.value) finished.value = true;
+    advance();
+  } catch (e) {
+    error.value = e instanceof ApiError ? e.message : '提交失败，请重试';
+  } finally {
+    submitting.value = false;
+  }
+}
+
+/**
+ * 练习判分即评级：答对算「掌握」(2)，答错算「模糊」(1)。
+ * 不用 0（忘记）是因为一次手滑就重置阶段太重，宁可保守。
+ */
+async function onExerciseSubmit(correct: boolean) {
+  const card = current.value;
+  const exercise = practice.value;
+  if (!card || !exercise || practiceResult.value || submitting.value) return;
+
+  practiceResult.value = { correct };
+  if (correct) tally.value.good += 1;
+  else tally.value.hard += 1;
+
+  submitting.value = true;
+  try {
+    const result = await api.review({
+      userCardId: card.userCardId,
+      rating: correct ? 2 : 1,
+      mode: exercise.mode,
+      elapsedMs: Date.now() - startedAt.value,
+    });
+    lastFeedback.value = {
+      label: `下次复习：${result.feedback.intervalLabel}`,
+      isLapse: result.feedback.isLapse,
+      rating: correct ? 2 : 1,
+    };
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : '提交失败，请重试';
   } finally {
@@ -94,12 +191,18 @@ async function rate(rating: 0 | 1 | 2 | 3) {
 function onKey(event: KeyboardEvent) {
   if (event.key === ' ') {
     event.preventDefault();
-    flipped.value = !flipped.value;
+    if (!practice.value) flipped.value = !flipped.value;
+    return;
+  }
+  // 练习答完回车继续，省一次点击
+  if (event.key === 'Enter' && practice.value && practiceResult.value) {
+    event.preventDefault();
+    advance();
     return;
   }
   const map: Record<string, 0 | 1 | 2 | 3> = { '1': 0, '2': 1, '3': 2, '4': 3 };
   const rating = map[event.key];
-  if (rating !== undefined && flipped.value && !submitting.value) {
+  if (rating !== undefined && flipped.value && !practice.value && !submitting.value) {
     void rate(rating);
   }
 }
@@ -195,36 +298,72 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 
     <!-- 学习中 -->
     <template v-else-if="current">
-      <StudyCardView :card="current" :flipped="flipped" @flip="flipped = !flipped" />
-
-      <p
-        v-if="lastFeedback"
-        class="mt-3 text-center text-xs"
-        :class="lastFeedback.isLapse ? 'text-rose-500' : 'text-slate-400'"
-      >
-        {{ lastFeedback.label }}
-      </p>
-
-      <div class="mt-4">
-        <div v-if="!flipped" class="space-y-2">
-          <button class="btn-primary w-full py-3.5" @click="flipped = true">查看答案</button>
-          <p class="text-center text-[11px] text-slate-400">桌面端可用空格翻面、1–4 评级</p>
-        </div>
-
-        <div v-else class="grid grid-cols-2 gap-2.5">
-          <button
-            v-for="r in ratings"
-            :key="r.value"
-            class="flex flex-col items-center justify-center rounded-xl py-3.5 text-white shadow-sm transition active:scale-[0.98] disabled:opacity-50"
-            :class="r.cls"
-            :disabled="submitting"
-            @click="rate(r.value)"
-          >
-            <span class="text-sm font-semibold">{{ r.label }}</span>
-            <span class="mt-0.5 text-[10px] text-white/80">{{ r.hint }}</span>
-          </button>
-        </div>
+      <div v-if="practiceLoading" class="card-surface flex h-[26rem] items-center justify-center">
+        <div class="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-600" />
       </div>
+
+      <ExerciseCard
+        v-else-if="practice"
+        :exercise="practice"
+        :result="practiceResult"
+        @submit="onExerciseSubmit"
+      />
+
+      <StudyCardView v-else :card="current" :flipped="flipped" @flip="flipped = !flipped" />
+
+      <!-- 练习模式：结果条 + 继续 -->
+      <template v-if="practice">
+        <div
+          v-if="practiceResult"
+          class="mt-3 flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs"
+          :class="
+            practiceResult.correct
+              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300'
+              : 'bg-rose-50 text-rose-700 dark:bg-rose-900/25 dark:text-rose-300'
+          "
+        >
+          <span class="font-semibold">{{ practiceResult.correct ? '答对了' : '再记一下' }}</span>
+          <span class="text-slate-500 dark:text-slate-400">{{ lastFeedback?.label ?? '' }}</span>
+        </div>
+        <button v-if="practiceResult" class="btn-primary mt-3 w-full py-3.5" :disabled="submitting" @click="advance">
+          继续
+        </button>
+        <p v-else class="mt-3 text-center text-[11px] text-slate-400">
+          {{ practice.mode === 'cloze' ? '选出正确的一项，立即判分' : '点词块排出句子，排满自动判定' }}
+        </p>
+      </template>
+
+      <!-- 翻转卡模式 -->
+      <template v-else>
+        <p
+          v-if="lastFeedback"
+          class="mt-3 text-center text-xs"
+          :class="lastFeedback.isLapse ? 'text-rose-500' : 'text-slate-400'"
+        >
+          {{ lastFeedback.label }}
+        </p>
+
+        <div class="mt-4">
+          <div v-if="!flipped" class="space-y-2">
+            <button class="btn-primary w-full py-3.5" @click="flipped = true">查看答案</button>
+            <p class="text-center text-[11px] text-slate-400">桌面端可用空格翻面、1–4 评级</p>
+          </div>
+
+          <div v-else class="grid grid-cols-2 gap-2.5">
+            <button
+              v-for="r in ratings"
+              :key="r.value"
+              class="flex flex-col items-center justify-center rounded-xl py-3.5 text-white shadow-sm transition active:scale-[0.98] disabled:opacity-50"
+              :class="r.cls"
+              :disabled="submitting"
+              @click="rate(r.value)"
+            >
+              <span class="text-sm font-semibold">{{ r.label }}</span>
+              <span class="mt-0.5 text-[10px] text-white/80">{{ r.hint }}</span>
+            </button>
+          </div>
+        </div>
+      </template>
     </template>
   </div>
 </template>

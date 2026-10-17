@@ -4,10 +4,17 @@ import { useRouter } from 'vue-router';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../stores/auth';
 import { useTheme } from '../lib/theme';
+import { readPracticePref, writePracticePref } from '../lib/prefs';
 
 const router = useRouter();
 const { user, logout } = useAuth();
 const { isDark, toggleTheme } = useTheme();
+
+const practiceOn = ref(readPracticePref());
+function togglePractice() {
+  practiceOn.value = !practiceOn.value;
+  writePracticePref(practiceOn.value);
+}
 
 const dailyNew = ref(user.value?.dailyNewLimit ?? 10);
 const dailyReview = ref(user.value?.dailyReviewLimit ?? 100);
@@ -121,13 +128,20 @@ async function handleLogout() {
         <span class="text-sm font-medium">深色模式</span>
         <span class="text-xs text-slate-400">{{ isDark ? '已开启' : '已关闭' }}</span>
       </button>
+      <button class="flex w-full items-center justify-between px-5 py-4 text-left" @click="togglePractice">
+        <span>
+          <span class="text-sm font-medium">复习用练习题</span>
+          <span class="mt-0.5 block text-[11px] text-slate-400">完形填空 / 语序重组；新卡不受影响</span>
+        </span>
+        <span class="text-xs text-slate-400">{{ practiceOn ? '已开启' : '已关闭' }}</span>
+      </button>
       <div class="flex items-center justify-between px-5 py-4">
         <span class="text-sm font-medium">时区</span>
         <span class="text-xs text-slate-400">{{ timezone }}</span>
       </div>
       <div class="flex items-center justify-between px-5 py-4">
         <span class="text-sm font-medium">版本</span>
-        <span class="text-xs text-slate-400">Phase 1 · 0.1.0</span>
+        <span class="text-xs text-slate-400">Phase 2 · 0.2.0</span>
       </div>
     </section>
 
