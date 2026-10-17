@@ -332,6 +332,20 @@ SAMPLE=20 node scripts/check-exercise.mjs
 
 > 读什么：语块读本体；单词和句型读第一个例句。只读 `make` 这种单词，识别必然满分，测了个寂寞。
 
+### 移动端朗读静音的坑（已修）
+
+用户报告「手机上按朗读没声音」。根因有三个，都集中在 `speechSynthesis`：
+
+1. **`cancel()` 同步紧跟 `speak()` 会把自己掐掉** —— iOS / 部分安卓里，前一句没清完就播新句，
+   表现就是「按了没声」。修法：先 `cancel()`，再用 `setTimeout(150ms)` 隔开一帧再 `speak()`。
+2. **不显式选 voice，部分设备静默失败** —— 安卓首次 `getVoices()` 为空，必须监听 `voiceschanged`
+   缓存 voice 列表，朗读时按 `lang` 精确匹配英文 voice。
+3. **iOS 第一句经常被静默丢掉** —— `onstart` 始终不触发。修法：用 `speakToken` 兜底，
+   700ms 还没真正开播就补播一次，同一时刻只允许最新一次补播，不会叠音。
+
+统一收进 `frontend/src/lib/speech.ts` 的 `speakText()`，学习页「听一遍」和词库「朗读」都改调它。
+`speakText()` 返回 `false` 时按钮自动禁用并提示「当前浏览器不支持朗读」。
+
 ---
 
 ## AI 剪藏怎么工作

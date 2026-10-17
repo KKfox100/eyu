@@ -153,3 +153,117 @@ export function pickSpeakTarget(card: {
   }
   return { text: card.content, zh: card.definition };
 }
+
+/**
+ * 浏览器是否支持语音合成（朗读）。iOS / Android / 桌面 Chrome · Edge · Safari 都支持，
+ * 但要注意：朗读和识别是两套能力 —— 有的环境支持朗读却不支持识别（或反之）。
+ */
+export function isSpeechSynthesisSupported(): boolean {
+  return typeof window !== 'undefined' && 'speechSynthesis' in window;
+}
+
+// 语音列表是异步加载的：首次调用时可能还是空的，必须监听 voiceschanged 再缓存起来。
+// 不缓存的话，每次都拿不到 voice，部分安卓机型会静默不响。
+let cachedVoices: SpeechSynthesisVoice[] = [];
+
+function loadVoices(): void {
+  if (!isSpeechSynthesisSupported()) return;
+  const list = window.speechSynthesis.getVoices();
+  if (list.length) cachedVoices = list;
+}
+
+if (isSpeechSynthesisSupported()) {
+  loadVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
+  if (!cachedVoices.length) loadVoices();
+  if (!cachedVoices.length) return undefined;
+  const want = lang.toLowerCase();
+  const base = want.split('-')[0];
+  return (
+    cachedVoices.find((v) => v.lang?.toLowerCase() === want) ||
+    cachedVoices.find((v) => v.lang?.toLowerCase().startsWith(want)) ||
+    cachedVoices.find((v) => v.lang?.toLowerCase().startsWith(base)) ||
+    cachedVoices.find((v) => v.default) ||
+    cachedVoices[0]
+  );
+}
+
+let speakToken = 0;
+
+/**
+ * 朗读一段文本，返回是否真的发起了（false = 浏览器不支持语音合成）。
+ *
+ * 移动端的坑都集中在这里，所以单独抽出来统一处理：
+ * 1. 先 cancel() 再 speak() 必须**隔开一帧**——iOS / 部分安卓里同步连写会把自己掐掉，
+ *    表现就是「按了没声」。
+ * 2. 必须显式选一个英文 voice，否则部分设备静默失败。
+ * 3. iOS 第一句经常被静默丢掉；用 speakToken 兜底：超过 700ms 还没真正开始响，就补一次。
+ *    同一时刻只允许最新的那次朗读补播，不会重复发声。
+ */
+export function speakText(
+  text: string,
+  opts: { lang?: string; rate?: number; onStart?: () => void; onEnd?: () => void } = {}
+): boolean {
+  if (!isSpeechSynthesisSupported()) return false;
+  const synth = window.speechSynthesis;
+  const lang = opts.lang || 'en-US';
+
+  // 清掉残留队列：iOS 上旧的 utterance 没播完会让新的卡住
+  try {
+    synth.cancel();
+  } catch {
+    /* 忽略 */
+  }
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = lang;
+  utterance.volume = 1;
+  utterance.rate = opts.rate ?? 0.92;
+  utterance.pitch = 1;
+  const voice = pickVoice(lang);
+  if (voice) utterance.voice = voice;
+
+  let started = false;
+  let ended = false;
+  const token = ++speakToken;
+
+  const finish = () => {
+    if (ended) return;
+    ended = true;
+    opts.onEnd?.();
+  };
+
+  utterance.onstart = () => {
+    started = true;
+    opts.onStart?.();
+  };
+  utterance.onend = finish;
+  utterance.onerror = finish;
+
+  // 隔一帧再 speak，给 cancel() 留出生效时间
+  window.setTimeout(() => {
+    if (token === speakToken) {
+      try {
+        synth.speak(utterance);
+      } catch {
+        finish();
+      }
+    }
+  }, 150);
+
+  // iOS 常见：第一句静默丢失，onstart 始终不触发。补播一次，靠 token 保证不重播。
+  window.setTimeout(() => {
+    if (token === speakToken && !started) {
+      try {
+        synth.speak(utterance);
+      } catch {
+        /* 忽略 */
+      }
+    }
+  }, 700);
+
+  return true;
+}

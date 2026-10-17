@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { api, ApiError, type StudyCard } from '../lib/api';
+import { isSpeechSynthesisSupported, speakText } from '../lib/speech';
 
 const items = ref<StudyCard[]>([]);
 const total = ref(0);
@@ -69,13 +70,22 @@ watch(keyword, () => {
 });
 watch(type, () => void load(true));
 
-function speak(text: string) {
-  if (!('speechSynthesis' in window)) return;
-  window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'en-US';
-  u.rate = 0.92;
-  window.speechSynthesis.speak(u);
+const synthSupported = isSpeechSynthesisSupported();
+/** 正在朗读的卡片 id（同一时刻只播一个，避免叠音） */
+const playingId = ref<string | null>(null);
+
+function speak(card: StudyCard) {
+  if (!synthSupported) return;
+  const text =
+    card.type === 'grammar' ? card.examples[0]?.en || card.content : card.content;
+  playingId.value = card.cardId;
+  speakText(text, {
+    lang: 'en-US',
+    rate: 0.92,
+    onEnd: () => {
+      if (playingId.value === card.cardId) playingId.value = null;
+    },
+  });
 }
 
 onMounted(() => void load(true));
@@ -171,9 +181,11 @@ onMounted(() => void load(true));
           </div>
           <button
             class="btn-ghost mt-2 w-full py-2 text-xs"
-            @click.stop="speak(card.type === 'grammar' ? card.examples[0]?.en || card.content : card.content)"
+            :class="card.cardId === playingId ? 'text-brand-600 dark:text-brand-400' : ''"
+            :disabled="card.cardId === playingId"
+            @click.stop="speak(card)"
           >
-            朗读
+            {{ card.cardId === playingId ? '朗读中…' : '朗读' }}
           </button>
         </div>
       </li>

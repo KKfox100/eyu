@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { isSpeechSupported, PASS_SCORE, scoreSpeech, type SpeechScore } from '../lib/speech';
+import {
+  isSpeechSupported,
+  isSpeechSynthesisSupported,
+  PASS_SCORE,
+  scoreSpeech,
+  speakText,
+  type SpeechScore,
+} from '../lib/speech';
 
 const props = defineProps<{
   target: string;
@@ -15,6 +22,8 @@ const emit = defineEmits<{ (e: 'submit', payload: { score: number; correct: bool
 const MAX_ATTEMPTS = 3;
 
 const supported = isSpeechSupported();
+/** 朗读（语音合成）和识别是两套能力：有的环境能读却不能识别，反之亦然 */
+const synthSupported = isSpeechSynthesisSupported();
 const listening = ref(false);
 const transcript = ref('');
 const score = ref<SpeechScore | null>(null);
@@ -178,15 +187,18 @@ function giveUp() {
 
 /** 先听一遍标准发音 */
 function playModel() {
-  if (!('speechSynthesis' in window)) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(props.target);
-  utterance.lang = 'en-US';
-  utterance.rate = 0.9;
+  if (!synthSupported) return;
   speaking.value = true;
-  utterance.onend = () => (speaking.value = false);
-  utterance.onerror = () => (speaking.value = false);
-  window.speechSynthesis.speak(utterance);
+  speakText(props.target, {
+    lang: 'en-US',
+    rate: 0.9,
+    onStart: () => {
+      speaking.value = true;
+    },
+    onEnd: () => {
+      speaking.value = false;
+    },
+  });
 }
 </script>
 
@@ -197,7 +209,9 @@ function playModel() {
         口语测评
       </span>
       <button
-        class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-slate-400 transition active:scale-95"
+        class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-slate-400 transition active:scale-95 disabled:opacity-40"
+        :disabled="!synthSupported"
+        :title="synthSupported ? '听一遍标准发音' : '当前浏览器不支持朗读'"
         @click="playModel"
       >
         <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.8">
