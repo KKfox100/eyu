@@ -1,0 +1,20 @@
+{
+  "name": "eyu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "e语 — Cloudflare 全栈英语自学打卡应用 (Words + Chunks + Grammar, SM-2)",
+  "workspaces": [
+    "frontend",
+    "worker"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace frontend",
+    "dev:api": "npm run dev --workspace worker",
+    "build": "npm run build --workspace frontend",
+    "db:init:local": "npm run db:init:local --workspace worker",
+    "db:init:remote": "npm run db:init:remote --workspace worker",
+    "deploy:api": "npm run deploy --workspace worker",
+    "deploy:web": "npm run deploy --workspace frontend",
+    "test:sm2": "npm run test --workspace worker"
+  }
+}

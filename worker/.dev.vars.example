@@ -1,0 +1,3 @@
+# 复制为 .dev.vars 后使用（.dev.vars 已在 .gitignore 中）
+JWT_SECRET=dev-only-secret-change-me-please-32bytes
+PBKDF2_ITERATIONS=100000
