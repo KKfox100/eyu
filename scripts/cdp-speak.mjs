@@ -144,7 +144,7 @@ try {
     return true;
   })()`);
   console.log('   点击听一遍按钮:', clicked);
-  await sleep(900);
+  await sleep(2500);
   const study = await getLog();
   const firstSpeakDelay = study && study.speaks[0] ? study.speaks[0].at - (await evaluate('window.__clickAt')) : null;
   console.log('   调用 speak 次数:', study?.speaks.length, '| cancel 次数:', study?.cancels, '| 缓存 voices 数:', study?.voices);
@@ -176,7 +176,7 @@ try {
     return true;
   })()`) : false;
   console.log('   点击朗读按钮:', clicked2);
-  if (clicked2) await sleep(900);
+  if (clicked2) await sleep(2500);
   const lib = await getLog();
   const libDelay = lib && lib.speaks[0] ? lib.speaks[0].at - (await evaluate('window.__clickAt')) : null;
   console.log('   调用 speak 次数:', lib?.speaks.length, '| cancel 次数:', lib?.cancels, '| 缓存 voices 数:', lib?.voices);

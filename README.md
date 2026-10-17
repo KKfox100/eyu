@@ -350,6 +350,24 @@ SAMPLE=20 node scripts/check-exercise.mjs
 neural / enhanced / Samantha / Google US English / Microsoft 神经语音等质量关键词），
 自动挑最自然的那一个。这样不再用设备默认可能很机器人的语音，且无需用户手动选。
 
+### 云端神经 TTS（更自然，可选）
+
+浏览器自带 `speechSynthesis` 再怎么挑也有天花板（取决于设备 TTS 引擎）。
+想要接近真人的语调断句，就走**云端 TTS**：`worker/src/routes/tts.ts` 经后端调 OpenAI 语音合成
+（`tts-1-hd`），返回 mp3 给前端用 `<audio>` 播放。前端 `speakText()` 默认优先云端，
+失败（没配 key / 网络 / 限流）自动回退本地 `speechSynthesis`，保证「一定有声音」。
+
+> 为什么用 OpenAI 而不是 Edge / Azure 神经语音？Cloudflare **免费计划禁止出站 WebSocket**，
+> 而 Edge / Azure 的 TTS 走 WebSocket 协议，在这套部署上跑不通。OpenAI TTS 是普通 HTTP，能用。
+> （实测：连 `wss://echo.websocket.events` 这类公开 WS 都直接 502，确认是计划限制。）
+
+**开启（一次性）**：在 `worker/` 下执行
+```bash
+npx wrangler secret put OPENAI_API_KEY   # 粘贴你的 sk-... 密钥
+```
+配好后，「我的 → 云端语音」开关即生效，可选音色 Nova / Shimmer / Alloy / Fable / Onyx / Echo。
+不配 key 也能正常用，只是走本地语音（上面的自主择优）。
+
 ---
 
 ## AI 剪藏怎么工作

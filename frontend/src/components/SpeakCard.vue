@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   isSpeechSupported,
-  isSpeechSynthesisSupported,
+  isTtsAvailable,
   PASS_SCORE,
   scoreSpeech,
   speakText,
@@ -23,7 +23,7 @@ const MAX_ATTEMPTS = 3;
 
 const supported = isSpeechSupported();
 /** 朗读（语音合成）和识别是两套能力：有的环境能读却不能识别，反之亦然 */
-const synthSupported = isSpeechSynthesisSupported();
+const ttsAvailable = isTtsAvailable();
 const listening = ref(false);
 const transcript = ref('');
 const score = ref<SpeechScore | null>(null);
@@ -187,7 +187,7 @@ function giveUp() {
 
 /** 先听一遍标准发音 */
 function playModel() {
-  if (!synthSupported) return;
+  if (!ttsAvailable) return;
   speaking.value = true;
   speakText(props.target, {
     lang: 'en-US',
@@ -210,8 +210,8 @@ function playModel() {
       </span>
       <button
         class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-slate-400 transition active:scale-95 disabled:opacity-40"
-        :disabled="!synthSupported"
-        :title="synthSupported ? '听一遍标准发音' : '当前浏览器不支持朗读'"
+        :disabled="!ttsAvailable"
+        :title="ttsAvailable ? '听一遍标准发音' : '当前设备无法朗读'"
         @click="playModel"
       >
         <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.8">

@@ -6,6 +6,9 @@ export interface Env {
   /** Workers AI：智能剪藏用 */
   AI: Ai;
 
+  /** 云端 TTS：OpenAI 语音合成（tts-1-hd）。不配则用本地 speechSynthesis 兜底 */
+  OPENAI_API_KEY?: string;
+
   /** 机密：wrangler secret put JWT_SECRET */
   JWT_SECRET: string;
 

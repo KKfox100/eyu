@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { api, ApiError, type StudyCard } from '../lib/api';
-import { isSpeechSynthesisSupported, speakText } from '../lib/speech';
+import { isTtsAvailable, speakText } from '../lib/speech';
 
 const items = ref<StudyCard[]>([]);
 const total = ref(0);
@@ -70,12 +70,12 @@ watch(keyword, () => {
 });
 watch(type, () => void load(true));
 
-const synthSupported = isSpeechSynthesisSupported();
+const ttsAvailable = isTtsAvailable();
 /** 正在朗读的卡片 id（同一时刻只播一个，避免叠音） */
 const playingId = ref<string | null>(null);
 
 function speak(card: StudyCard) {
-  if (!synthSupported) return;
+  if (!ttsAvailable) return;
   const text =
     card.type === 'grammar' ? card.examples[0]?.en || card.content : card.content;
   playingId.value = card.cardId;

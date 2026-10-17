@@ -226,16 +226,12 @@ function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
 let speakToken = 0;
 
 /**
- * 朗读一段文本，返回是否真的发起了（false = 浏览器不支持语音合成）。
- *
- * 移动端的坑都集中在这里，所以单独抽出来统一处理：
- * 1. 先 cancel() 再 speak() 必须**隔开一帧**——iOS / 部分安卓里同步连写会把自己掐掉，
- *    表现就是「按了没声」。
+ * 本地语音合成（speechSynthesis）。移动端的坑都集中在这里，单独抽出来统一处理：
+ * 1. 先 cancel() 再 speak() 必须**隔开一帧**——iOS / 部分安卓里同步连写会把自己掐掉。
  * 2. 必须显式选一个英文 voice，否则部分设备静默失败。
- * 3. iOS 第一句经常被静默丢掉；用 speakToken 兜底：超过 700ms 还没真正开始响，就补一次。
- *    同一时刻只允许最新的那次朗读补播，不会重复发声。
+ * 3. iOS 第一句经常被静默丢掉；用 speakToken 兜底补播一次。
  */
-export function speakText(
+export function speakSynth(
   text: string,
   opts: { lang?: string; rate?: number; onStart?: () => void; onEnd?: () => void } = {}
 ): boolean {
@@ -243,7 +239,6 @@ export function speakText(
   const synth = window.speechSynthesis;
   const lang = opts.lang || 'en-US';
 
-  // 清掉残留队列：iOS 上旧的 utterance 没播完会让新的卡住
   try {
     synth.cancel();
   } catch {
@@ -275,7 +270,6 @@ export function speakText(
   utterance.onend = finish;
   utterance.onerror = finish;
 
-  // 隔一帧再 speak，给 cancel() 留出生效时间
   window.setTimeout(() => {
     if (token === speakToken) {
       try {
@@ -286,7 +280,6 @@ export function speakText(
     }
   }, 150);
 
-  // iOS 常见：第一句静默丢失，onstart 始终不触发。补播一次，靠 token 保证不重播。
   window.setTimeout(() => {
     if (token === speakToken && !started) {
       try {
@@ -298,4 +291,137 @@ export function speakText(
   }, 700);
 
   return true;
+}
+
+// ============================================================
+// 云端神经 TTS（Edge 神经语音，经 Worker 转发，更自然）
+// ============================================================
+
+/** 默认云端音色：nova，自然清晰的英文女声（OpenAI TTS） */
+const CLOUD_VOICE_DEFAULT = 'nova';
+const CLOUD_VOICES = [
+  { id: 'nova', label: 'Nova · 自然女声' },
+  { id: 'shimmer', label: 'Shimmer · 柔和女声' },
+  { id: 'alloy', label: 'Alloy · 中性' },
+  { id: 'fable', label: 'Fable · 英式男声' },
+  { id: 'onyx', label: 'Onyx · 沉稳男声' },
+  { id: 'echo', label: 'Echo · 清亮男声' },
+] as const;
+
+export const cloudVoices = CLOUD_VOICES;
+
+let cloudEnabled = readBool('eyu.cloudTts', true);
+let cloudVoice = localStorage.getItem('eyu.cloudVoice') || CLOUD_VOICE_DEFAULT;
+let cloudBrokenUntil = 0;
+
+function readBool(key: string, fallback: boolean): boolean {
+  const v = localStorage.getItem(key);
+  return v === null ? fallback : v === '1';
+}
+
+/** 是否启用云端 TTS（默认开；关了就只用本地 speechSynthesis） */
+export function isCloudTts(): boolean {
+  return cloudEnabled;
+}
+export function setCloudTts(v: boolean): void {
+  cloudEnabled = v;
+  localStorage.setItem('eyu.cloudTts', v ? '1' : '0');
+}
+export function getCloudVoice(): string {
+  return cloudVoice;
+}
+export function setCloudVoice(v: string): void {
+  cloudVoice = v;
+  localStorage.setItem('eyu.cloudVoice', v);
+}
+
+/** 设备能不能朗读：云端开着就算能（网络允许时），否则看本地 speechSynthesis 支持 */
+export function isTtsAvailable(): boolean {
+  return cloudEnabled || isSpeechSynthesisSupported();
+}
+
+function cloudBroken(): boolean {
+  return Date.now() < cloudBrokenUntil;
+}
+function markCloudBroken(): void {
+  cloudBrokenUntil = Date.now() + 60_000;
+}
+
+let audioEl: HTMLAudioElement | null = null;
+
+/**
+ * 走云端 TTS：fetch 音频 → <audio> 播放。失败（网络/端点）自动回退本地 speechSynthesis。
+ * 返回 true 表示「已经发起尝试」（即便之后回退，调用方不必再处理）。
+ */
+function playCloud(
+  text: string,
+  opts: { lang?: string; rate?: number; voice?: string; onStart?: () => void; onEnd?: () => void }
+): boolean {
+  if (typeof window === 'undefined' || typeof window.Audio === 'undefined') return speakSynth(text, opts);
+  const token = ++speakToken;
+  const voice = opts.voice || cloudVoice;
+  const url = `/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(voice)}`;
+  const headers: Record<string, string> = {};
+  const tk = localStorage.getItem('eyu.token');
+  if (tk) headers.Authorization = `Bearer ${tk}`;
+
+  window
+    .fetch(url, { headers })
+    .then((res) => {
+      if (!res.ok) throw new Error(`tts http ${res.status}`);
+      return res.blob();
+    })
+    .then((blob) => {
+      if (token !== speakToken) return;
+      if (!blob || !blob.size) {
+        markCloudBroken();
+        speakSynth(text, opts);
+        return;
+      }
+      const el = audioEl || (audioEl = new window.Audio());
+      const objUrl = URL.createObjectURL(blob);
+      const cleanup = () => {
+        if (el.src === objUrl || el.src.startsWith('blob:')) URL.revokeObjectURL(objUrl);
+      };
+      el.onended = () => {
+        cleanup();
+        if (token === speakToken) opts.onEnd?.();
+      };
+      el.onerror = () => {
+        cleanup();
+        if (token === speakToken) {
+          markCloudBroken();
+          speakSynth(text, opts);
+        }
+      };
+      el.src = objUrl;
+      opts.onStart?.();
+      el.play().catch(() => {
+        if (token === speakToken) {
+          markCloudBroken();
+          speakSynth(text, opts);
+        }
+      });
+    })
+    .catch(() => {
+      if (token === speakToken) {
+        markCloudBroken();
+        speakSynth(text, opts);
+      }
+    });
+  return true;
+}
+
+/**
+ * 朗读入口：默认优先云端神经 TTS（更自然），失败回退本地 speechSynthesis。
+ * 调用方无需关心走哪条路。
+ */
+export function speakText(
+  text: string,
+  opts: { lang?: string; rate?: number; voice?: string; onStart?: () => void; onEnd?: () => void } = {}
+): boolean {
+  if (cloudEnabled && !cloudBroken()) {
+    return playCloud(text, opts);
+  }
+  return speakSynth(text, opts);
 }

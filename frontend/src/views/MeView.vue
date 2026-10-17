@@ -5,6 +5,7 @@ import { api, ApiError } from '../lib/api';
 import { useAuth } from '../stores/auth';
 import { useTheme } from '../lib/theme';
 import { readPracticePref, writePracticePref } from '../lib/prefs';
+import { cloudVoices, getCloudVoice, isCloudTts, setCloudTts, setCloudVoice } from '../lib/speech';
 
 const router = useRouter();
 const { user, logout } = useAuth();
@@ -59,6 +60,17 @@ async function saveReminder() {
   } finally {
     savingReminder.value = false;
   }
+}
+
+// ---- 朗读语音 ----
+const cloudOn = ref(isCloudTts());
+const cloudVoiceId = ref(getCloudVoice());
+function toggleCloud() {
+  cloudOn.value = !cloudOn.value;
+  setCloudTts(cloudOn.value);
+}
+function onCloudVoiceChange() {
+  setCloudVoice(cloudVoiceId.value);
 }
 
 const initial = computed(() => {
@@ -210,6 +222,41 @@ async function handleLogout() {
       <button class="btn-primary mt-4 w-full" :disabled="savingReminder" @click="saveReminder">
         {{ savingReminder ? '保存中…' : '保存提醒设置' }}
       </button>
+    </section>
+
+    <!-- 朗读语音 -->
+    <section class="card-surface mt-4 p-5">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h2 class="text-sm font-semibold">云端语音（更自然）</h2>
+          <p class="mt-1 text-[11px] leading-relaxed text-slate-400">
+            走微软神经语音，比手机自带朗读自然很多；关闭则用设备本地语音，离线也能用
+          </p>
+        </div>
+        <button
+          class="relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition"
+          :class="cloudOn ? 'bg-brand-600' : 'bg-slate-300 dark:bg-slate-700'"
+          role="switch"
+          :aria-checked="cloudOn"
+          aria-label="开启云端语音"
+          @click="toggleCloud"
+        >
+          <span
+            class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all"
+            :class="cloudOn ? 'left-[22px]' : 'left-0.5'"
+          />
+        </button>
+      </div>
+
+      <div v-if="cloudOn" class="mt-4">
+        <label class="text-xs font-medium">音色</label>
+        <select v-model="cloudVoiceId" class="input mt-1.5" @change="onCloudVoiceChange">
+          <option v-for="v in cloudVoices" :key="v.id" :value="v.id">{{ v.label }}</option>
+        </select>
+        <p class="mt-1.5 text-[11px] leading-relaxed text-slate-400">
+          神经网络语音，语调断句接近真人；切换后下一次朗读即生效
+        </p>
+      </div>
     </section>
 
     <!-- 偏好 -->

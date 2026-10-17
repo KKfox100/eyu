@@ -37,3 +37,6 @@ Thumbs.db
 # 本地验证产物
 .shots/
 shots/
+
+# local wrangler dev state
+worker/.dev/

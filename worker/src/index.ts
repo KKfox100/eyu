@@ -6,6 +6,7 @@ import authRoutes from './routes/auth';
 import studyRoutes from './routes/cards';
 import statsRoutes from './routes/stats';
 import clipRoutes from './routes/clip';
+import ttsRoutes from './routes/tts';
 import type { AppEnv } from './middleware/auth';
 import type { Env } from './types';
 
@@ -58,6 +59,7 @@ app.route('/api/auth', authRoutes);
 app.route('/api/study', studyRoutes);
 app.route('/api/stats', statsRoutes);
 app.route('/api/clip', clipRoutes);
+app.route('/api/tts', ttsRoutes);
 
 app.notFound((c) => c.json({ ok: false, error: { code: 'not_found', message: '接口不存在' } }, 404));
 
