@@ -35,6 +35,12 @@ const router = createRouter({
       meta: { requiresAuth: true, title: '词库' },
     },
     {
+      path: '/clip',
+      name: 'clip',
+      component: () => import('./views/ClipView.vue'),
+      meta: { requiresAuth: true, title: 'AI 剪藏' },
+    },
+    {
       path: '/me',
       name: 'me',
       component: () => import('./views/MeView.vue'),

@@ -83,11 +83,22 @@ onMounted(() => void load(true));
 
 <template>
   <div class="mx-auto w-full max-w-lg flex-1 px-5 pb-8 pt-6 safe-top">
-    <header class="mb-4">
-      <h1 class="text-2xl font-bold tracking-tight">词库</h1>
-      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        共 {{ total }} 张卡片 · 按频次排序
-      </p>
+    <header class="mb-4 flex items-start justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">词库</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          共 {{ total }} 张卡片 · 按频次排序
+        </p>
+      </div>
+      <router-link
+        to="/clip"
+        class="flex shrink-0 items-center gap-1.5 rounded-full bg-brand-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-brand-600/25 transition active:scale-95"
+      >
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M12 3v3m0 12v3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M3 12h3m12 0h3M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1" stroke-linecap="round" />
+        </svg>
+        AI 剪藏
+      </router-link>
     </header>
 
     <div class="sticky top-0 z-10 -mx-5 bg-paper/95 px-5 pb-3 pt-1 backdrop-blur dark:bg-slate-950/95">

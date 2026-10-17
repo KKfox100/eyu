@@ -3,6 +3,7 @@ import type { AuthUser, Env, UserRow } from '../types';
 import { hashPassword, verifyPassword } from '../lib/password';
 import { signJwt } from '../lib/jwt';
 import { jsonError, jsonOk, newId } from '../lib/http';
+import { isAllowedWebhook } from '../lib/webhook';
 import { SESSION_PREFIX, requireAuth, type AppEnv } from '../middleware/auth';
 
 const app = new Hono<AppEnv>();
@@ -30,6 +31,8 @@ function publicUser(row: UserRow) {
     timezone: row.timezone,
     dailyNewLimit: row.daily_new_limit,
     dailyReviewLimit: row.daily_review_limit,
+    reminderEnabled: row.reminder_enabled !== 0,
+    reminderWebhook: row.reminder_webhook ?? null,
     createdAt: row.created_at,
   };
 }
@@ -166,6 +169,23 @@ app.patch('/me', requireAuth, async (c) => {
   if (typeof body.displayName === 'string') {
     updates.push(`display_name = ?${values.length + 1}`);
     values.push(body.displayName.trim().slice(0, 32) || null);
+  }
+  if (typeof body.reminderEnabled === 'boolean') {
+    updates.push(`reminder_enabled = ?${values.length + 1}`);
+    values.push(body.reminderEnabled ? 1 : 0);
+  }
+  if (typeof body.reminderWebhook === 'string') {
+    const url = body.reminderWebhook.trim();
+    if (url && !isAllowedWebhook(url)) {
+      return jsonError(
+        c,
+        400,
+        'webhook_not_allowed',
+        '只支持企业微信 / 钉钉 / 飞书的群机器人地址'
+      );
+    }
+    updates.push(`reminder_webhook = ?${values.length + 1}`);
+    values.push(url || null);
   }
 
   if (!updates.length) return jsonError(c, 400, 'no_changes', '没有需要更新的字段');

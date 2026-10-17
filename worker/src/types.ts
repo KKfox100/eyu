@@ -3,6 +3,8 @@
 export interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
+  /** Workers AI：智能剪藏用 */
+  AI: Ai;
 
   /** 机密：wrangler secret put JWT_SECRET */
   JWT_SECRET: string;
@@ -86,6 +88,9 @@ export interface UserRow {
   timezone: string;
   daily_new_limit: number;
   daily_review_limit: number;
+  /** 迁移 002 新增：打卡提醒 */
+  reminder_enabled?: number;
+  reminder_webhook?: string | null;
   created_at: string;
   last_active_at: string | null;
 }

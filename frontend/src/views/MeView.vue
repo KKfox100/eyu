@@ -22,6 +22,45 @@ const saving = ref(false);
 const savedAt = ref<number | null>(null);
 const error = ref<string | null>(null);
 
+// ---- 每日提醒 ----
+const reminderOn = ref(user.value?.reminderEnabled ?? false);
+const webhook = ref(user.value?.reminderWebhook ?? '');
+const savingReminder = ref(false);
+const reminderMsg = ref<string | null>(null);
+const reminderError = ref<string | null>(null);
+
+watch(
+  () => user.value?.reminderEnabled,
+  (v) => {
+    if (typeof v === 'boolean') reminderOn.value = v;
+  }
+);
+watch(
+  () => user.value?.reminderWebhook,
+  (v) => {
+    if (typeof v === 'string') webhook.value = v;
+  }
+);
+
+async function saveReminder() {
+  savingReminder.value = true;
+  reminderError.value = null;
+  reminderMsg.value = null;
+  try {
+    const result = await api.updateSettings({
+      reminderEnabled: reminderOn.value,
+      reminderWebhook: webhook.value.trim(),
+    });
+    if (user.value && result.user) user.value = result.user;
+    reminderMsg.value = reminderOn.value ? '已保存，今晚开始提醒' : '已关闭提醒';
+    setTimeout(() => (reminderMsg.value = null), 2400);
+  } catch (e) {
+    reminderError.value = e instanceof ApiError ? e.message : '保存失败';
+  } finally {
+    savingReminder.value = false;
+  }
+}
+
 const initial = computed(() => {
   const name = user.value?.displayName || user.value?.email || 'e';
   return name.charAt(0).toUpperCase();
@@ -122,6 +161,57 @@ async function handleLogout() {
       </button>
     </section>
 
+    <!-- 打卡提醒 -->
+    <section class="card-surface mt-4 p-5">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h2 class="text-sm font-semibold">每日提醒</h2>
+          <p class="mt-1 text-[11px] leading-relaxed text-slate-400">
+            每天 19:30 推一条消息到群机器人；今天已经学过就不打扰
+          </p>
+        </div>
+        <button
+          class="relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition"
+          :class="reminderOn ? 'bg-brand-600' : 'bg-slate-300 dark:bg-slate-700'"
+          role="switch"
+          :aria-checked="reminderOn"
+          aria-label="开启每日提醒"
+          @click="reminderOn = !reminderOn"
+        >
+          <span
+            class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all"
+            :class="reminderOn ? 'left-[22px]' : 'left-0.5'"
+          />
+        </button>
+      </div>
+
+      <div v-if="reminderOn" class="mt-4">
+        <label class="text-xs font-medium">群机器人 Webhook</label>
+        <input
+          v-model="webhook"
+          class="input mt-1.5"
+          type="url"
+          inputmode="url"
+          placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+        />
+        <p class="mt-1.5 text-[11px] leading-relaxed text-slate-400">
+          支持企业微信 / 钉钉 / 飞书。在群设置里添加「群机器人」，把生成的地址粘过来。
+        </p>
+        <p v-if="!webhook.trim()" class="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+          还没填地址，提醒发不出去
+        </p>
+      </div>
+
+      <p v-if="reminderError" class="mt-2 text-xs text-red-500">{{ reminderError }}</p>
+      <p v-else-if="reminderMsg" class="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+        {{ reminderMsg }}
+      </p>
+
+      <button class="btn-primary mt-4 w-full" :disabled="savingReminder" @click="saveReminder">
+        {{ savingReminder ? '保存中…' : '保存提醒设置' }}
+      </button>
+    </section>
+
     <!-- 偏好 -->
     <section class="card-surface mt-4 divide-y divide-slate-100 dark:divide-slate-800">
       <button class="flex w-full items-center justify-between px-5 py-4 text-left" @click="toggleTheme">
@@ -135,13 +225,22 @@ async function handleLogout() {
         </span>
         <span class="text-xs text-slate-400">{{ practiceOn ? '已开启' : '已关闭' }}</span>
       </button>
+      <router-link to="/clip" class="flex w-full items-center justify-between px-5 py-4 text-left">
+        <span>
+          <span class="text-sm font-medium">AI 剪藏</span>
+          <span class="mt-0.5 block text-[11px] text-slate-400">贴一段英文，拆成卡片进词库</span>
+        </span>
+        <svg viewBox="0 0 24 24" class="h-4 w-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </router-link>
       <div class="flex items-center justify-between px-5 py-4">
         <span class="text-sm font-medium">时区</span>
         <span class="text-xs text-slate-400">{{ timezone }}</span>
       </div>
       <div class="flex items-center justify-between px-5 py-4">
         <span class="text-sm font-medium">版本</span>
-        <span class="text-xs text-slate-400">Phase 2 · 0.2.0</span>
+        <span class="text-xs text-slate-400">Phase 3 · 0.3.0</span>
       </div>
     </section>
 

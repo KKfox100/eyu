@@ -84,6 +84,8 @@ export interface User {
   timezone: string;
   dailyNewLimit: number;
   dailyReviewLimit: number;
+  reminderEnabled: boolean;
+  reminderWebhook: string | null;
   createdAt?: string;
 }
 
@@ -170,6 +172,17 @@ export interface ReviewResponse {
   remainingDue: number;
 }
 
+export interface ClippedCard {
+  type: 'word' | 'chunk' | 'grammar';
+  content: string;
+  phonetic: string | null;
+  definition: string;
+  grammarPattern: string | null;
+  explanation: string | null;
+  examples: Array<{ scene?: string; en: string; zh?: string }>;
+  tags: string[];
+}
+
 export interface Overview {
   today: {
     date: string;
@@ -209,8 +222,19 @@ export const api = {
 
   me: () => request<{ user: User }>('/api/auth/me'),
 
-  updateSettings: (body: Partial<Pick<User, 'dailyNewLimit' | 'dailyReviewLimit' | 'timezone' | 'displayName'>>) =>
-    request<{ user: User }>('/api/auth/me', { method: 'PATCH', body }),
+  updateSettings: (
+    body: Partial<
+      Pick<
+        User,
+        | 'dailyNewLimit'
+        | 'dailyReviewLimit'
+        | 'timezone'
+        | 'displayName'
+        | 'reminderEnabled'
+        | 'reminderWebhook'
+      >
+    >
+  ) => request<{ user: User }>('/api/auth/me', { method: 'PATCH', body }),
 
   queue: (limit = 30, extra = false) =>
     request<QueueResponse>(`/api/study/queue?limit=${limit}${extra ? '&extra=1' : ''}`),
@@ -222,6 +246,19 @@ export const api = {
     request<ReviewResponse>('/api/study/review', { method: 'POST', body }),
 
   overview: (days = 90) => request<Overview>(`/api/stats/overview?days=${days}`),
+
+  /** 剪藏：把一段英文拆成卡片（只解析，不落库） */
+  clipAnalyze: (text: string) =>
+    request<{ cards: ClippedCard[]; model: string; chars: number }>('/api/clip/analyze', {
+      method: 'POST',
+      body: { text },
+    }),
+
+  clipImport: (cards: ClippedCard[]) =>
+    request<{ imported: number; skipped: number }>('/api/clip/import', {
+      method: 'POST',
+      body: { cards },
+    }),
 
   cards: (params: { page?: number; pageSize?: number; type?: string; q?: string } = {}) => {
     const search = new URLSearchParams();

@@ -24,8 +24,10 @@
 | --- | --- | --- |
 | **Phase 1** | 基础设施：Vite + Vue 3 + Tailwind + PWA、Worker 路由、D1 Schema、JWT 鉴权、SM-2 引擎、今日队列、基础学习闭环、统计热力图 | ✅ 已完成并上线 |
 | **Phase 2a** | 完形填空 + 语序重组（复习卡自动出题、判分即评级） | ✅ 已完成并上线 |
-| Phase 2b | Web Speech 口语测评（朗读匹配） | ⏳ 待开始 |
-| Phase 3 | AI 智能剪藏解析、Cron 打卡提醒、数据导出 | ⏳ 待开始 |
+| **Phase 2b** | Web Speech 口语测评（朗读打分、逐词标红） | ✅ 已完成并上线 |
+| **Phase 3a** | AI 智能剪藏（粘贴英文 → 拆成卡片 → 勾选导入词库） | ✅ 已完成并上线 |
+| **Phase 3b** | Cron 打卡提醒（每天 19:30 推群机器人，今天学过就不打扰） | ✅ 已完成并上线 |
+| Phase 3c | 数据导出（CSV / JSON） | ⏳ 待开始 |
 
 ---
 
@@ -39,7 +41,9 @@
 | 主库 | Cloudflare D1（SQLite） | 用户、词库、记忆状态、复习日志 |
 | 会话 | Cloudflare KV | JWT 会话白名单，登出/强制下线即时生效 |
 | 鉴权 | 自实现 HS256 JWT（WebCrypto）+ PBKDF2-SHA256 | 不依赖 Node 专用库，Workers 原生可跑 |
-| 语音 | Web Speech API | `speechSynthesis` 朗读已接入，`SpeechRecognition` 留给 Phase 2 |
+| 语音 | Web Speech API | `speechSynthesis` 朗读 + `SpeechRecognition` 跟读测评（本地识别，不传音频上云） |
+| AI | Workers AI | 剪藏走 4 个模型回退链（llama-3.3-70b → llama-4-scout → qwen3 → mistral-small） |
+| 定时 | Cron Triggers | 每天 UTC 11:30（北京 19:30）跑一次提醒 |
 
 ---
 
@@ -49,9 +53,10 @@
 e语/
 ├─ frontend/                 # Cloudflare Pages 项目
 │  ├─ src/
-│  │  ├─ views/              # Login / Today / Study / Stats / Library / Me
-│  │  ├─ components/         # StudyCard（3D 翻转）、ExerciseCard（填空 / 语序）、Heatmap、BottomNav
+│  │  ├─ views/              # Login / Today / Study / Stats / Library / Clip / Me
+│  │  ├─ components/         # StudyCard（3D 翻转）、ExerciseCard（填空 / 语序）、SpeakCard（跟读）、Heatmap、BottomNav
 │  │  ├─ lib/api.ts          # 带类型的 API 客户端
+│  │  ├─ lib/speech.ts       # ★ 口语评分（LCS 对齐，纯函数）
 │  │  ├─ lib/prefs.ts        # 本地偏好（复习是否用练习题）
 │  │  └─ stores/auth.ts      # 登录态
 │  ├─ functions/api/[[path]].ts  # Pages Functions：/api/* 同源代理到 Worker
@@ -59,24 +64,28 @@ e语/
 │  └─ vite.config.ts         # PWA / 代理 / 构建
 ├─ worker/                   # Cloudflare Workers 项目
 │  ├─ src/
-│  │  ├─ index.ts            # 路由挂载 + CORS + 错误处理
+│  │  ├─ index.ts            # 路由挂载 + CORS + 错误处理 + scheduled() 提醒任务
 │  │  ├─ lib/sm2.ts          # ★ SM-2 核心算法（纯函数，可单测）
 │  │  ├─ lib/exercise.ts     # ★ 练习题生成（挖空 / 打乱 / 干扰项，纯函数）
+│  │  ├─ lib/clip.ts         # ★ 模型输出 → 卡片（取正文 / 抠 JSON / 截断修复，纯函数）
+│  │  ├─ lib/webhook.ts      # ★ 群机器人白名单与报文格式（纯函数）
 │  │  ├─ lib/jwt.ts          # HS256 签发/校验
 │  │  ├─ lib/password.ts     # PBKDF2 哈希
 │  │  ├─ middleware/auth.ts  # Bearer 鉴权 + KV 会话校验
-│  │  └─ routes/             # auth / study / stats
+│  │  └─ routes/             # auth / study / stats / clip
 │  ├─ schema.sql             # ★ D1 表结构
 │  ├─ seed.sql               # 65 张种子卡片（40 词 + 15 语块 + 10 句型）
 │  ├─ seeds/                 # 扩充词库：words-2 / words-3 / chunks-2 / grammar-2（共 340 张）
-│  ├─ migrations/            # 增量迁移（如存量用户每日额度 10 → 20）
-│  ├─ wrangler.toml          # ★ Worker / D1 / KV 配置
-│  └─ test/                  # sm2 + exercise 共 25 个用例
+│  ├─ migrations/            # 增量迁移（每日额度 10 → 20、提醒字段）
+│  ├─ wrangler.toml          # ★ Worker / D1 / KV / AI / Cron 配置
+│  └─ test/                  # sm2 + exercise + clip 共 39 个用例
 └─ scripts/
    ├─ setup-cloudflare.mjs   # 一键建库 + 回填 ID + 灌数据 + 写机密
    ├─ apply-sql.mjs          # 按顺序幂等应用全部 SQL（本地 / --remote）
    ├─ check-exercise.mjs     # 抽样打印生成的练习题，人工看挖空/切词对不对
-   └─ smoke-test.mjs         # 线上冒烟测试（注册→队列→评级→统计→加练→登出）
+   ├─ smoke-test.mjs         # 线上接口冒烟（注册→队列→评级→统计→加练→登出）
+   ├─ cdp-clip.mjs           # 真实浏览器跑剪藏全流程并截图
+   └─ cdp-me.mjs             # 真实浏览器验证提醒设置（含非法域名被拒）
 ```
 
 ---
@@ -109,10 +118,17 @@ cd worker && npm test                  # node --experimental-strip-types --test
 ```bash
 node scripts/smoke-test.mjs                              # 打 https://eyu.pages.dev
 BASE=http://127.0.0.1:8787 node scripts/smoke-test.mjs   # 打本地 Worker
+
+node scripts/cdp-clip.mjs     # 真实浏览器：示例文本 → 解析 → 导入，截图存 shots/
+node scripts/cdp-me.mjs       # 真实浏览器：提醒开关 → 非法域名被拒 → 保存落库
 ```
 
-覆盖 13 项：注册、队列按频次发词、单轮容量、四种评级的调度结果、统计聚合、当前用户、
-非法评级被拒、加练可突破每日额度、未鉴权被拒、登出后令牌立即失效。
+`smoke-test.mjs` 覆盖 13 项：注册、队列按频次发词、单轮容量、四种评级的调度结果、统计聚合、
+当前用户、非法评级被拒、加练可突破每日额度、未鉴权被拒、登出后令牌立即失效。
+
+> 两个 `cdp-*` 脚本走 headless Chrome + CDP，会真跑一遍 AI 剪藏（8-30 秒）。
+> 它们每次用全新的 `user-data-dir` 并禁用缓存 —— 否则 PWA 的 Service Worker
+> 会把上一次的构建喂给你，测的是旧版本。
 
 ---
 
@@ -180,13 +196,15 @@ CORS_ORIGINS = "https://eyu.pages.dev,https://你的自定义域名"
 | POST | `/api/auth/login` | 登录，返回 JWT |
 | POST | `/api/auth/logout` | 注销（删除 KV 会话） |
 | GET | `/api/auth/me` | 当前用户 |
-| PATCH | `/api/auth/me` | 修改每日上限 / 时区 / 昵称 |
+| PATCH | `/api/auth/me` | 修改每日上限 / 时区 / 昵称 / 提醒开关与 webhook |
 | GET | `/api/study/queue?limit=30&extra=0` | 今日队列：**到期复习优先，再按频次发新词**；`extra=1` 为加练 |
 | GET | `/api/study/exercise?userCardId=…&mode=auto` | 生成练习题（`auto` / `cloze` / `order`）；出不了题返回 `available:false` |
 | POST | `/api/study/review` | 提交评级 `{ userCardId, rating, mode, elapsedMs }` |
 | GET | `/api/study/cards` | 词库浏览（分页 / 类型 / 关键词） |
 | GET | `/api/stats/overview?days=90` | 今日进度、连续天数、总量、热力图 |
 | GET | `/api/stats/history?limit=30` | 每日复习明细 |
+| POST | `/api/clip/analyze` | 剪藏解析：`{ text }` → `{ cards, model, chars }`（不落库） |
+| POST | `/api/clip/import` | 剪藏导入：`{ cards }` → `{ imported, skipped }`（按 content 去重） |
 
 除 `register` / `login` / `health` 外均需 `Authorization: Bearer <token>`。
 
@@ -255,11 +273,110 @@ SAMPLE=20 node scripts/check-exercise.mjs
 
 ---
 
+## 口语测评怎么打分
+
+点学习页右上角的麦克风，读完一句，前端拿 `SpeechRecognition` 的识别结果和目标句对齐打分
+（`frontend/src/lib/speech.ts`，纯函数，11 个单测）。
+
+**不做逐字相等比较**。识别引擎会漏词、加词、把 `it's` 写成 `its`、把 `20` 听成 `twenty`，
+逐字比对会让 80 分的朗读变成 20 分。这里用的是**词级最长公共子序列（LCS）**：
+
+1. 两边都规范化：小写、去标点、删撇号、数字词统一成数字。
+2. 跑 LCS，标记目标句里哪些词被「按顺序」读到了。
+3. `score = 匹配数 / 目标词数 × 100`。
+
+| 情况 | 结果 |
+| --- | --- |
+| 全读对，标点大小写不同 | 100 分 |
+| 7 个词读对 5 个 | 71 分（≥ 70 算通过） |
+| 多读了词 | 不扣分，多出来的忽略 |
+| 顺序说反 | 只算前半段匹配 |
+| 完全不相干 | 0 分 |
+
+界面上逐词标绿 / 划红，直接看出漏了哪个词。**音频不出设备** —— 识别在浏览器里完成，
+服务端只收到一个分数。
+
+> 读什么：语块读本体；单词和句型读第一个例句。只读 `make` 这种单词，识别必然满分，测了个寂寞。
+
+---
+
+## AI 剪藏怎么工作
+
+「词库 → AI 剪藏」或「我的 → AI 剪藏」，贴一段英文（120–6000 字符），
+模型会挑 6-8 张值得学的卡，勾选后导入成**你自己的私有卡片**（`owner_id` = 你，`source` = `ai-clip`）。
+
+```bash
+node scripts/check-clip.mjs   # 命令行跑一遍：解析 → 打印 → 导入 → 重复导入验证去重
+node scripts/cdp-clip.mjs     # 浏览器里跑一遍并截图
+```
+
+**模型回退链**（`worker/src/routes/clip.ts`）：
+
+| 顺序 | 模型 | 实测 |
+| --- | --- | --- |
+| 1 | `llama-3.3-70b-instruct-fp8-fast` | 8-10s / 6-7 张，质量最稳 |
+| 2 | `llama-4-scout-17b-16e-instruct` | 13s / 3 张，偏保守 |
+| 3 | `qwen3-30b-a3b-fp8` | 12s / 3 张 |
+| 4 | `mistral-small-3.1-24b-instruct` | 26s / 8 张，最全但慢 |
+
+踩过的坑都写在代码注释里，这里列三个最要命的：
+
+- **返回结构不统一**。同一批模型，有的把正文放 `choices[0].message.content`（顶层 `response` 是空串），
+  有的才用 `response`。只读 `response` 的后果不是报错，而是**悄悄降级到最差的模型** ——
+  主力全被判成 empty，最后 llama-3.2-3b 给你编几张假卡。`readAiText()` 两种都认。
+- **`max_tokens` 写大了会直接失败**。这几个模型单次输出上限 2048，写 4096 报错；
+  那就靠「少出卡 + 每张 1-2 个例句」压住输出，超了还有 `repairTruncatedJson()` 兜底 ——
+  它按括号栈找到最后一个安全截断点补齐，**哪怕模型正写到第三个例句的半句话就断了，
+  前面完整的卡也能全救回来**。
+- **`type` 可能是中文**。prompt 是中文写的，模型很自然回「单词 / 语块 / 句型」，
+  只认英文枚举的话整批卡会被静默丢掉。`normalizeType()` 一并认。
+
+质量上还有一条硬规则：**单词卡必须收成词典原形**（原文 `clarifying` → 卡面 `clarify`）。
+不这么做，用户复习的是变形，学不到词根。
+
+导入按 `owner_id + content` 去重，同一段话反复剪不会把词库灌满。
+
+---
+
+## 打卡提醒怎么发
+
+每天 **UTC 11:30（北京 19:30）** 由 Cron Trigger 触发 `scheduled()`（`worker/src/index.ts`）：
+
+1. 取所有 `reminder_enabled = 1` 且 `reminder_webhook` 非空的用户。
+2. 按**各自时区**算出「今天」，查到期卡片数 `due` 和今日已复习数 `done`。
+3. `done > 0` 直接跳过 —— **今天学过就不打扰**，这是整个功能的分寸所在。
+4. 既没到期卡也没新词可学，也跳过。
+5. 否则 POST 一条文本到群机器人。
+
+**配置方式**：在群里添加「群机器人」，复制 webhook 地址，粘到「我的 → 每日提醒」。
+
+| 平台 | 域名 | 报文格式 |
+| --- | --- | --- |
+| 企业微信 | `qyapi.weixin.qq.com` | `{ msgtype: 'text', text: { content } }` |
+| 钉钉 | `oapi.dingtalk.com` | 同上 |
+| 飞书 | `open.feishu.cn` / `open.larksuite.com` | `{ msg_type: 'text', content: { text } }` |
+
+> **为什么要白名单**：这个 URL 由用户填、由服务端发起请求，不限制就是个 SSRF 口子
+> （`http://169.254.169.254/` 之类）。`isAllowedWebhook()` 要求 https + 域名在白名单内，
+> 非法地址在保存时就被拒，不会等到 cron 跑起来才发现。
+
+提醒文案长这样：
+
+```
+e语 · 今天的复习还没开始
+
+小林，有 12 张卡片到期了，大约 6 分钟。
+连续 7 天，别断在这里。
+https://eyu.pages.dev
+```
+
+---
+
 ## 数据库
 
 4 张表 + 1 个视图，详见 `worker/schema.sql`：
 
-- `users` — 账号、时区、每日新词/复习上限
+- `users` — 账号、时区、每日新词/复习上限、提醒开关与 webhook
 - `cards_master` — 词/语块/句型主表；`frequency_rank` 决定新词顺序；`owner_id` 为 NULL 是公共词库，非 NULL 是用户私有卡片（Phase 3 剪藏产物）
 - `user_cards` — 每用户每卡一行，SM-2 状态（stage / EF / interval / next_review_at / lapses）
 - `review_logs` — 每次作答一行，带 `review_date`（用户本地日期），是热力图与正确率的唯一数据源
@@ -273,6 +390,10 @@ SAMPLE=20 node scripts/check-exercise.mjs
 ## 注意事项
 
 - **免费额度**：Workers 10 万请求/天、D1 5GB、KV 10 万读/天，个人或小圈子够用。
+- **Workers AI 也有免费额度**：每天 10,000 neurons，够几十次剪藏。超了 `/api/clip/analyze`
+  会返回 `ai_unavailable`，等第二天恢复；不要在页面上轮询它。
+- **Cron 一天只跑一次**：Cloudflare 不保证秒级准时，误差几分钟正常，错过就等第二天。
+  想改时间就调 `wrangler.toml` 里的 `crons`（注意是 UTC）。
 - **PBKDF2 与 CPU 上限**：免费计划单请求 10ms CPU，10 万次迭代的 PBKDF2 可能逼近上限。
   若注册/登录偶发 `1102` 错误，把 `PBKDF2_ITERATIONS` 调到 `50000`（已写入哈希串，调低不影响老用户登录）。
 - **JWT_SECRET 必须换**：`wrangler secret put JWT_SECRET`，不要用仓库里的开发值。
@@ -283,6 +404,8 @@ SAMPLE=20 node scripts/check-exercise.mjs
 
 ## 下一步预留
 
-- `review_logs.mode` 已能记 `recall | cloze | order | speak`；口语测评（`speak`）只需再加一个题型组件，服务端无需改表。
-- `worker/src/index.ts` 已导出 `scheduled()` 处理器，Phase 3 打开 `wrangler.toml` 里的 `[triggers]` 即可接 Cron。
-- `cards_master.source` / `owner_id` 已为 AI 剪藏产物留好位置。
+- `review_logs.mode` 已能记 `recall | cloze | order | speak`；新增题型只需加一个组件，服务端无需改表。
+- **数据导出**（Phase 3c）：`user_cards JOIN cards_master` 直接吐 CSV，含 SM-2 状态与全部复习记录。
+- **剪藏进阶**：`/api/clip/analyze` 已支持 6000 字符；下一步可以吃 URL（`fetch` + 正文提取）或 PDF。
+- **提醒频率**：目前一天一次；`buildReminderText()` 是纯函数，想加「连续 3 天没学才提醒」这类策略只改它。
+- **口语测评**：`scoreSpeech()` 只用了 LCS，想更严可以加音素级比对（需要换识别引擎）。

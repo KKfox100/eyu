@@ -15,6 +15,7 @@
     "db:init:remote": "npm run db:init:remote --workspace worker",
     "deploy:api": "npm run deploy --workspace worker",
     "deploy:web": "npm run deploy --workspace frontend",
+    "test": "npm run test --workspace worker && npm run test --workspace frontend",
     "test:sm2": "npm run test --workspace worker"
   }
 }

@@ -3,8 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, ApiError, type Exercise, type QueueResponse, type StudyCard } from '../lib/api';
 import { readPracticePref } from '../lib/prefs';
+import { isSpeechSupported, pickSpeakTarget } from '../lib/speech';
 import StudyCardView from '../components/StudyCard.vue';
 import ExerciseCard from '../components/ExerciseCard.vue';
+import SpeakCard from '../components/SpeakCard.vue';
 
 const router = useRouter();
 
@@ -26,6 +28,11 @@ const practiceEnabled = readPracticePref();
 /** userCardId → 题目（null 表示这道卡出不了题，别再问第二次） */
 const exerciseCache = new Map<string, Exercise | null>();
 
+/** 口语测评：手动切换，避免一进学习页就弹麦克风权限 */
+const speakMode = ref(false);
+const speakResult = ref<{ score: number; correct: boolean } | null>(null);
+const speechAvailable = isSpeechSupported();
+
 const tally = ref({ forgot: 0, hard: 0, good: 0, easy: 0 });
 const startedAt = ref(Date.now());
 const lastFeedback = ref<{ label: string; isLapse: boolean; rating: number } | null>(null);
@@ -39,6 +46,23 @@ const reviewed = computed(() => tally.value.forgot + tally.value.hard + tally.va
 const accuracy = computed(() => {
   if (!reviewed.value) return null;
   return Math.round(((tally.value.good + tally.value.easy) / reviewed.value) * 100);
+});
+
+/** 朗读目标：有练习题就用题目的完整句子，否则按卡片类型挑（单词/句型读例句） */
+const speakText = computed(() => {
+  const exercise = practice.value;
+  if (exercise?.mode === 'cloze') {
+    return exercise.sentence.replace('____', exercise.answerForm || exercise.answer);
+  }
+  if (exercise?.mode === 'order') return exercise.answerTokens.join(' ');
+  const card = current.value;
+  return card ? pickSpeakTarget(card).text : '';
+});
+
+const speakZh = computed<string | null>(() => {
+  if (practice.value) return practice.value.zh;
+  const card = current.value;
+  return card ? pickSpeakTarget(card).zh : null;
 });
 
 const ratings = [
@@ -78,6 +102,7 @@ async function enterCard() {
   practiceResult.value = null;
   lastFeedback.value = null;
   flipped.value = false;
+  speakResult.value = null;
   startedAt.value = Date.now();
   if (!card) return;
 
@@ -188,21 +213,53 @@ async function onExerciseSubmit(correct: boolean) {
   }
 }
 
+/**
+ * 口语测评判分即评级：读对（≥70 分）算「掌握」，没过算「模糊」。
+ * 和完形/语序保持同一套口径，复习日志里用 mode='speak' 区分。
+ */
+async function onSpeakSubmit(payload: { score: number; correct: boolean }) {
+  const card = current.value;
+  if (!card || speakResult.value || submitting.value) return;
+
+  speakResult.value = payload;
+  if (payload.correct) tally.value.good += 1;
+  else tally.value.hard += 1;
+
+  submitting.value = true;
+  try {
+    const result = await api.review({
+      userCardId: card.userCardId,
+      rating: payload.correct ? 2 : 1,
+      mode: 'speak',
+      elapsedMs: Date.now() - startedAt.value,
+    });
+    lastFeedback.value = {
+      label: `下次复习：${result.feedback.intervalLabel}`,
+      isLapse: result.feedback.isLapse,
+      rating: payload.correct ? 2 : 1,
+    };
+  } catch (e) {
+    error.value = e instanceof ApiError ? e.message : '提交失败，请重试';
+  } finally {
+    submitting.value = false;
+  }
+}
+
 function onKey(event: KeyboardEvent) {
   if (event.key === ' ') {
     event.preventDefault();
-    if (!practice.value) flipped.value = !flipped.value;
+    if (!practice.value && !speakMode.value) flipped.value = !flipped.value;
     return;
   }
-  // 练习答完回车继续，省一次点击
-  if (event.key === 'Enter' && practice.value && practiceResult.value) {
+  // 练习 / 口语答完回车继续，省一次点击
+  if (event.key === 'Enter' && (practiceResult.value || speakResult.value)) {
     event.preventDefault();
     advance();
     return;
   }
   const map: Record<string, 0 | 1 | 2 | 3> = { '1': 0, '2': 1, '3': 2, '4': 3 };
   const rating = map[event.key];
-  if (rating !== undefined && flipped.value && !practice.value && !submitting.value) {
+  if (rating !== undefined && flipped.value && !practice.value && !speakMode.value && !submitting.value) {
     void rate(rating);
   }
 }
@@ -232,6 +289,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
           <div class="progress-bar" :style="{ width: `${progress}%` }" />
         </div>
       </div>
+      <button
+        v-if="speechAvailable && !finished"
+        class="rounded-full p-2 transition"
+        :class="
+          speakMode
+            ? 'bg-sky-50 text-sky-600 dark:bg-sky-900/40 dark:text-sky-300'
+            : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+        "
+        :aria-label="speakMode ? '退出跟读' : '跟读这句'"
+        @click="speakMode = !speakMode"
+      >
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.9">
+          <path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Z" stroke-linecap="round" />
+          <path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke-linecap="round" />
+        </svg>
+      </button>
       <span class="w-12 text-right text-xs font-medium tabular-nums text-slate-400">
         {{ Math.min(index + (finished ? 0 : 1), total) }}/{{ total }}
       </span>
@@ -298,7 +371,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 
     <!-- 学习中 -->
     <template v-else-if="current">
-      <div v-if="practiceLoading" class="card-surface flex h-[26rem] items-center justify-center">
+      <SpeakCard
+        v-if="speakMode"
+        :target="speakText"
+        :zh="speakZh"
+        :result="speakResult"
+        @submit="onSpeakSubmit"
+      />
+
+      <div v-else-if="practiceLoading" class="card-surface flex h-[26rem] items-center justify-center">
         <div class="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-600" />
       </div>
 
@@ -311,8 +392,32 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 
       <StudyCardView v-else :card="current" :flipped="flipped" @flip="flipped = !flipped" />
 
+      <!-- 口语模式 -->
+      <template v-if="speakMode">
+        <div
+          v-if="speakResult"
+          class="mt-3 flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs"
+          :class="
+            speakResult.correct
+              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300'
+              : 'bg-rose-50 text-rose-700 dark:bg-rose-900/25 dark:text-rose-300'
+          "
+        >
+          <span class="font-semibold">
+            {{ speakResult.correct ? `读得不错 · ${speakResult.score} 分` : `再练练 · ${speakResult.score} 分` }}
+          </span>
+          <span class="text-slate-500 dark:text-slate-400">{{ lastFeedback?.label ?? '' }}</span>
+        </div>
+        <button v-if="speakResult" class="btn-primary mt-3 w-full py-3.5" :disabled="submitting" @click="advance">
+          继续
+        </button>
+        <p v-else class="mt-3 text-center text-[11px] text-slate-400">
+          看着句子读一遍，自动判分（读对 70% 即通过）
+        </p>
+      </template>
+
       <!-- 练习模式：结果条 + 继续 -->
-      <template v-if="practice">
+      <template v-else-if="practice">
         <div
           v-if="practiceResult"
           class="mt-3 flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs"

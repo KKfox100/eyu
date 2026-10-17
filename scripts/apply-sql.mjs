@@ -25,7 +25,14 @@ const FILES = [
   'seeds/chunks-2.sql',
   'seeds/grammar-2.sql',
   'migrations/001-bump-daily-new-limit.sql',
+  'migrations/002-reminder.sql',
 ];
+
+/**
+ * SQLite 的 ALTER TABLE ADD COLUMN 不支持 IF NOT EXISTS，
+ * 重复执行会报 "duplicate column name" —— 这恰恰说明迁移已经生效过，视为成功。
+ */
+const IGNORABLE = ['duplicate column name'];
 
 const target = process.argv.includes('--local') ? '--local' : '--remote';
 /** 直接用 node 跑 wrangler 的入口，避免 Windows 上 .cmd 需要 shell 的问题 */
@@ -54,6 +61,11 @@ for (const file of FILES) {
       ok = true;
     } catch (error) {
       const output = `${error.stdout ?? ''}${error.stderr ?? ''}`;
+      if (IGNORABLE.some((hint) => output.includes(hint))) {
+        ok = true;
+        console.log(`  ${file} 已应用过，跳过`);
+        break;
+      }
       if (attempt === 3) {
         failed += 1;
         console.error(`✗ ${file}`);

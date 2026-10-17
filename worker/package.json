@@ -9,7 +9,7 @@
     "db:init:local": "node ../scripts/apply-sql.mjs --local",
     "db:init:remote": "node ../scripts/apply-sql.mjs --remote",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test ./test/sm2.test.ts ./test/exercise.test.ts"
+    "test": "node --experimental-strip-types --test ./test/sm2.test.ts ./test/exercise.test.ts ./test/clip.test.ts"
   },
   "dependencies": {
     "hono": "^4.6.0"
