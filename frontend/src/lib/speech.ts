@@ -177,18 +177,50 @@ if (isSpeechSynthesisSupported()) {
   window.speechSynthesis.onvoiceschanged = loadVoices;
 }
 
+/**
+ * 不同设备 / 浏览器的英文语音质量差很多：iOS 上 Samantha 最自然，Android 上
+ * Google US English 最稳，但默认未必是它，有些设备还会塞一个很机器人的 Pico/TTS 语音。
+ * 这里给每个 voice 打分，自动挑最自然的那一个 —— 这就是「自主换 TTS」，不用用户手动选。
+ */
+const QUALITY_HINTS: Array<[RegExp, number]> = [
+  [/neural/i, 40],
+  [/premium/i, 35],
+  [/enhanced/i, 30],
+  [/natural/i, 28],
+  [/samantha/i, 26], // iOS 最自然的英文女声
+  [/aria|jenny|guy|zira|david|mark/i, 22], // Windows / Edge 神经语音
+  [/google us english/i, 18],
+  [/microsoft/i, 12],
+  [/daniel/i, 10], // iOS 男声
+];
+
+function scoreVoice(v: SpeechSynthesisVoice, want: string, base: string): number {
+  let s = 0;
+  const vl = (v.lang || '').toLowerCase();
+  if (vl === want) s += 100;
+  else if (vl.startsWith(want)) s += 60;
+  else if (vl.startsWith(base)) s += 30;
+  const name = v.name || '';
+  for (const [re, pts] of QUALITY_HINTS) if (re.test(name)) s += pts;
+  if (v.default) s += 6;
+  return s;
+}
+
 function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
   if (!cachedVoices.length) loadVoices();
   if (!cachedVoices.length) return undefined;
   const want = lang.toLowerCase();
   const base = want.split('-')[0];
-  return (
-    cachedVoices.find((v) => v.lang?.toLowerCase() === want) ||
-    cachedVoices.find((v) => v.lang?.toLowerCase().startsWith(want)) ||
-    cachedVoices.find((v) => v.lang?.toLowerCase().startsWith(base)) ||
-    cachedVoices.find((v) => v.default) ||
-    cachedVoices[0]
-  );
+  let best: SpeechSynthesisVoice | undefined;
+  let bestScore = -Infinity;
+  for (const v of cachedVoices) {
+    const sc = scoreVoice(v, want, base);
+    if (sc > bestScore) {
+      bestScore = sc;
+      best = v;
+    }
+  }
+  return best;
 }
 
 let speakToken = 0;

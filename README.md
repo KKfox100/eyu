@@ -346,6 +346,10 @@ SAMPLE=20 node scripts/check-exercise.mjs
 统一收进 `frontend/src/lib/speech.ts` 的 `speakText()`，学习页「听一遍」和词库「朗读」都改调它。
 `speakText()` 返回 `false` 时按钮自动禁用并提示「当前浏览器不支持朗读」。
 
+**自主择优语音**：`pickVoice()` 给每个可用语音打分（精确 `lang` 匹配权重最高，再叠加
+neural / enhanced / Samantha / Google US English / Microsoft 神经语音等质量关键词），
+自动挑最自然的那一个。这样不再用设备默认可能很机器人的语音，且无需用户手动选。
+
 ---
 
 ## AI 剪藏怎么工作
