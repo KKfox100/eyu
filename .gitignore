@@ -30,3 +30,9 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# WorkBuddy 工作区数据
+.workbuddy-ai/
+
+# 本地验证产物
+.shots/

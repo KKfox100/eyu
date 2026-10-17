@@ -3,13 +3,26 @@
 > 高频词 + 实用语块（Chunks）+ 语法骨架，用 SM-2 间隔重复算法安排每天该学什么。
 > 全栈跑在 Cloudflare 免费额度上：Pages + Workers + D1 + KV。
 
+## 🔗 线上地址
+
+| 服务 | 地址 |
+| --- | --- |
+| 应用（前端 + `/api` 同源代理） | **https://eyu.pages.dev** |
+| API 源站（Worker） | https://eyu-api.2412.workers.dev |
+
+> **为什么要加一层 Pages Functions 代理**：国内网络对 `*.workers.dev` 普遍存在 DNS 污染
+> （实测解析到 `103.252.115.53` 后连接超时），而 `*.pages.dev` 可以直连。
+> `frontend/functions/api/[[path]].ts` 把 `/api/*` 从 Pages 边缘转发到 Worker，
+> 浏览器只访问 `eyu.pages.dev` 一个域 —— 顺带把 CORS 也省了。
+> 若你的网络能直连 workers.dev，也可以把 `VITE_API_BASE` 指向 Worker 域名，走原生跨域。
+
 ---
 
 ## 当前进度
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
-| **Phase 1** | 基础设施：Vite + Vue 3 + Tailwind + PWA、Worker 路由、D1 Schema、JWT 鉴权、SM-2 引擎、今日队列、基础学习闭环、统计热力图 | ✅ 已完成 |
+| **Phase 1** | 基础设施：Vite + Vue 3 + Tailwind + PWA、Worker 路由、D1 Schema、JWT 鉴权、SM-2 引擎、今日队列、基础学习闭环、统计热力图 | ✅ 已完成并上线 |
 | Phase 2 | 卡片滑动/翻转强化、完形填空、语序重组、Web Speech 口语测评 | ⏳ 待开始 |
 | Phase 3 | AI 智能剪藏解析、Cron 打卡提醒、数据导出 | ⏳ 待开始 |
 
@@ -39,7 +52,8 @@ e语/
 │  │  ├─ components/         # StudyCard（3D 翻转）、Heatmap、BottomNav
 │  │  ├─ lib/api.ts          # 带类型的 API 客户端
 │  │  └─ stores/auth.ts      # 登录态
-│  ├─ public/                # favicon + PWA 图标
+│  ├─ functions/api/[[path]].ts  # Pages Functions：/api/* 同源代理到 Worker
+│  ├─ public/                # favicon + PWA 图标 + _routes.json
 │  └─ vite.config.ts         # PWA / 代理 / 构建
 ├─ worker/                   # Cloudflare Workers 项目
 │  ├─ src/
@@ -53,7 +67,9 @@ e语/
 │  ├─ seed.sql               # 65 张种子卡片（40 词 + 15 语块 + 10 句型）
 │  ├─ wrangler.toml          # ★ Worker / D1 / KV 配置
 │  └─ test/sm2.test.ts       # 12 个算法用例
-└─ scripts/setup-cloudflare.mjs   # 一键建库 + 回填 ID + 灌数据 + 写机密
+└─ scripts/
+   ├─ setup-cloudflare.mjs   # 一键建库 + 回填 ID + 灌数据 + 写机密
+   └─ smoke-test.mjs         # 线上冒烟测试（注册→队列→评级→统计→登出）
 ```
 
 ---
@@ -82,7 +98,22 @@ cd worker && npm test                  # node --experimental-strip-types --test
 
 ---
 
+## 线上验证
+
+```bash
+node scripts/smoke-test.mjs                              # 打 https://eyu.pages.dev
+BASE=http://127.0.0.1:8787 node scripts/smoke-test.mjs   # 打本地 Worker
+```
+
+覆盖 11 项：注册、队列按频次发词、四种评级的调度结果、统计聚合、当前用户、
+非法评级被拒、未鉴权被拒、登出后令牌立即失效。
+
+---
+
 ## 部署到 Cloudflare
+
+> 当前环境已经部署完成（D1 `a5de6486-…`、KV `0cd26cd6…`、Worker `eyu-api`、Pages `eyu`）。
+> 下面是**从零重建**或迁移到新账号时的完整步骤。
 
 ### 0. 前置
 
@@ -113,12 +144,14 @@ npm run deploy:api
 ### 3. 部署前端
 
 ```bash
-# 把 API 域名写进构建（也可写进 frontend/.env.production）
-VITE_API_BASE=https://eyu-api.<你的子域>.workers.dev npm run build --workspace frontend
-
+cd frontend
+npm run build                          # 同源模式：API 走 /api（由 Pages Functions 代理）
 npx wrangler pages project create eyu --production-branch=main
-npm run deploy:web
+npx wrangler pages deploy dist --project-name=eyu --branch=main
 ```
+
+> 如果你能直连 `*.workers.dev`，也可以改成跨域模式：
+> `VITE_API_BASE=https://eyu-api.<子域>.workers.dev npm run build`，并删掉 `frontend/functions/`。
 
 ### 4. 放行跨域
 

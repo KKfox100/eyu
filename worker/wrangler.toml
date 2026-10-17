@@ -24,7 +24,7 @@ JWT_ISSUER       = "eyu"
 ACCESS_TOKEN_TTL = "604800"          # 7 天（秒）
 DEFAULT_TZ       = "Asia/Shanghai"
 # 允许跨域的前端来源，逗号分隔；部署 Pages 后把正式域名加进来
-CORS_ORIGINS     = "http://localhost:5173,http://127.0.0.1:5173"
+CORS_ORIGINS     = "https://eyu.pages.dev,http://localhost:5173,http://127.0.0.1:5173"
 
 # ------------------------------------------------------------
 # D1 · 关系型主库
@@ -34,7 +34,7 @@ CORS_ORIGINS     = "http://localhost:5173,http://127.0.0.1:5173"
 [[d1_databases]]
 binding       = "DB"
 database_name = "eyu-db"
-database_id   = "00000000-0000-0000-0000-000000000000"
+database_id   = "a5de6486-b5c1-47cd-b636-5036524b2482"
 
 # ------------------------------------------------------------
 # KV · JWT Session / 黑名单 / 热数据缓存
@@ -42,8 +42,8 @@ database_id   = "00000000-0000-0000-0000-000000000000"
 # ------------------------------------------------------------
 [[kv_namespaces]]
 binding    = "SESSIONS"
-id         = "00000000000000000000000000000000"
-preview_id = "00000000000000000000000000000000"
+id         = "0cd26cd68db04753afe1aec6ab4bb011"
+preview_id = "0cd26cd68db04753afe1aec6ab4bb011"
 
 # ------------------------------------------------------------
 # Cron Triggers · Phase 3 开启（每日 23:00 UTC = 次日 07:00 北京时间）
