@@ -76,8 +76,9 @@ app.post('/register', async (c) => {
       : null;
 
   await c.env.DB.prepare(
-    `INSERT INTO users (id, email, password_hash, display_name, timezone, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+    `INSERT INTO users (id, email, password_hash, display_name, timezone,
+                        daily_new_limit, daily_review_limit, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, 20, 100, ?6)`
   )
     .bind(id, email, passwordHash, displayName, timezone, new Date().toISOString())
     .run();
@@ -88,7 +89,7 @@ app.post('/register', async (c) => {
     password_hash: passwordHash,
     display_name: displayName,
     timezone,
-    daily_new_limit: 10,
+    daily_new_limit: 20,
     daily_review_limit: 100,
     created_at: new Date().toISOString(),
     last_active_at: null,
@@ -154,8 +155,7 @@ app.patch('/me', requireAuth, async (c) => {
   if (typeof body.dailyNewLimit === 'number' && Number.isFinite(body.dailyNewLimit)) {
     updates.push(`daily_new_limit = ?${values.length + 1}`);
     values.push(Math.min(100, Math.max(0, Math.trunc(body.dailyNewLimit))));
-  }
-  if (typeof body.dailyReviewLimit === 'number' && Number.isFinite(body.dailyReviewLimit)) {
+  }  if (typeof body.dailyReviewLimit === 'number' && Number.isFinite(body.dailyReviewLimit)) {
     updates.push(`daily_review_limit = ?${values.length + 1}`);
     values.push(Math.min(500, Math.max(10, Math.trunc(body.dailyReviewLimit))));
   }

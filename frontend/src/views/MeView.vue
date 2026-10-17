@@ -89,11 +89,11 @@ async function handleLogout() {
           <div class="mb-2 flex items-center justify-between">
             <div>
               <p class="text-sm font-medium">每日新词</p>
-              <p class="text-[11px] text-slate-400">按频次从高到低发放</p>
+              <p class="text-[11px] text-slate-400">按频次从高到低发放；加练可到 3 倍</p>
             </div>
             <span class="text-sm font-semibold tabular-nums">{{ dailyNew }}</span>
           </div>
-          <input v-model.number="dailyNew" type="range" min="0" max="40" step="1" class="w-full accent-brand-600" />
+          <input v-model.number="dailyNew" type="range" min="0" max="100" step="5" class="w-full accent-brand-600" />
         </div>
 
         <div>

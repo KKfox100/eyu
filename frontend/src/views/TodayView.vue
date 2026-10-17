@@ -198,7 +198,9 @@ onMounted(load);
         <div class="card-surface p-4">
           <p class="text-xs text-slate-400">可学新词</p>
           <p class="mt-1 text-2xl font-bold tabular-nums">{{ data.totals.newAvailable }}</p>
-          <p class="mt-0.5 text-[11px] text-slate-400">按频次从高到低</p>
+          <p class="mt-0.5 text-[11px] text-slate-400">
+            今日已学 {{ data.today.newLearned }}/{{ user?.dailyNewLimit ?? 20 }}
+          </p>
         </div>
       </section>
 

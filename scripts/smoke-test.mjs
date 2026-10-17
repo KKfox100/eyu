@@ -41,12 +41,17 @@ check('注册', Boolean(reg?.data?.token), reg?.data?.user?.email ?? JSON.string
 const token = reg?.data?.token;
 const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-const queue = await call('/api/study/queue?limit=5', { headers: H });
+const queue = await call('/api/study/queue?limit=30', { headers: H });
 const cards = queue?.data?.queue ?? [];
 check(
   '队列发放新词',
   cards.length > 0,
   cards.map((c) => c.content).join(', ') + ' | ' + JSON.stringify(queue?.data?.summary)
+);
+check(
+  '单轮容量 ≥ 15 张',
+  cards.length >= 15,
+  `本轮到 ${cards.length} 张，每日新词上限 ${queue?.data?.summary?.dailyNewLimit}`
 );
 
 const ratings = [2, 0, 3, 1];
@@ -82,6 +87,13 @@ const badRating = await call('/api/study/review', {
   body: JSON.stringify({ userCardId: cards[0]?.userCardId, rating: 9 }),
 });
 check('非法评级被拒', badRating?.error?.code === 'invalid_rating', badRating?.error?.code);
+
+const extraQueue = await call('/api/study/queue?limit=30&extra=1', { headers: H });
+check(
+  '加练可突破每日额度',
+  (extraQueue?.data?.queue?.length ?? 0) > 0,
+  `加练队列 ${extraQueue?.data?.queue?.length ?? 0} 张，日上限 ${extraQueue?.data?.summary?.newCap}`
+);
 
 const noAuth = await call('/api/stats/overview');
 check('未鉴权被拒', noAuth?.error?.code === 'unauthorized', noAuth?.error?.code);

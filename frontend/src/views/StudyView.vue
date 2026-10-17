@@ -13,6 +13,8 @@ const loading = ref(true);
 const submitting = ref(false);
 const error = ref<string | null>(null);
 const finished = ref(false);
+const isExtra = ref(false);
+const summary = ref<QueueResponse['summary'] | null>(null);
 
 const tally = ref({ forgot: 0, hard: 0, good: 0, easy: 0 });
 const startedAt = ref(Date.now());
@@ -36,12 +38,14 @@ const ratings = [
   { value: 3 as const, label: '熟知', hint: '跳一级', cls: 'bg-sky-500 active:bg-sky-600' },
 ];
 
-async function loadQueue() {
+async function loadQueue(extra = false) {
   loading.value = true;
   error.value = null;
   try {
-    const data: QueueResponse = await api.queue(20);
+    const data: QueueResponse = await api.queue(30, extra);
     queue.value = data.queue;
+    summary.value = data.summary;
+    isExtra.value = extra;
     index.value = 0;
     flipped.value = false;
     finished.value = data.queue.length === 0;
@@ -153,7 +157,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
         <template v-if="reviewed">
           共复习 {{ reviewed }} 张<template v-if="accuracy !== null"> · 正确率 {{ accuracy }}%</template>
         </template>
-        <template v-else> 所有卡片都在记忆曲线上，到期后会自动出现 </template>
+        <template v-else>
+          {{ summary && summary.newCap > 0 ? '今日新词额度已用完，明天继续，或稍后复习到期卡片' : '所有卡片都在记忆曲线上，到期后会自动出现' }}
+        </template>
       </p>
 
       <div v-if="reviewed" class="card-surface mt-6 grid grid-cols-4 divide-x divide-slate-100 p-4 dark:divide-slate-800">
@@ -176,8 +182,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
       </div>
 
       <div class="mt-6 space-y-2.5">
-        <button class="btn-primary w-full" @click="router.push('/')">回到今日</button>
-        <button class="btn-ghost w-full" @click="loadQueue">再学一轮</button>
+        <button v-if="reviewed" class="btn-primary w-full" @click="loadQueue(true)">
+          继续加练
+          <span class="text-[11px] font-normal text-white/70">
+            今日额度 {{ summary?.dailyNewLimit ?? 0 }} → 可到 {{ summary?.extraNewCap ?? 60 }}
+          </span>
+        </button>
+        <button class="btn-ghost w-full" @click="router.push('/')">回到今日</button>
+        <button v-if="!reviewed" class="btn-ghost w-full" @click="router.push('/library')">逛逛词库</button>
       </div>
     </div>
 

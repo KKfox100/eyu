@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash     TEXT NOT NULL,              -- PBKDF2-SHA256: pbkdf2$<iter>$<salt_b64>$<hash_b64>
   display_name      TEXT,
   timezone          TEXT    DEFAULT 'Asia/Shanghai', -- 用于「今日」边界与打卡热力图
-  daily_new_limit   INTEGER DEFAULT 10,         -- 每日新词上限
+  daily_new_limit   INTEGER DEFAULT 20,         -- 每日新词上限（加练可突破到 3 倍）
   daily_review_limit INTEGER DEFAULT 100,       -- 每日复习上限
   created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
   last_active_at    DATETIME

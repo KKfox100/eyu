@@ -65,11 +65,14 @@ e语/
 │  │  └─ routes/             # auth / study / stats
 │  ├─ schema.sql             # ★ D1 表结构
 │  ├─ seed.sql               # 65 张种子卡片（40 词 + 15 语块 + 10 句型）
+│  ├─ seeds/                 # 扩充词库：words-2 / words-3 / chunks-2 / grammar-2（共 340 张）
+│  ├─ migrations/            # 增量迁移（如存量用户每日额度 10 → 20）
 │  ├─ wrangler.toml          # ★ Worker / D1 / KV 配置
 │  └─ test/sm2.test.ts       # 12 个算法用例
 └─ scripts/
    ├─ setup-cloudflare.mjs   # 一键建库 + 回填 ID + 灌数据 + 写机密
-   └─ smoke-test.mjs         # 线上冒烟测试（注册→队列→评级→统计→登出）
+   ├─ apply-sql.mjs          # 按顺序幂等应用全部 SQL（本地 / --remote）
+   └─ smoke-test.mjs         # 线上冒烟测试（注册→队列→评级→统计→加练→登出）
 ```
 
 ---
@@ -80,11 +83,10 @@ e语/
 npm install
 
 # 1. 初始化本地 D1（模拟库，不影响线上）
-cd worker
-cp .dev.vars.example .dev.vars        # Windows: copy .dev.vars.example .dev.vars
-npx wrangler d1 execute eyu-db --local --file=./schema.sql
-npx wrangler d1 execute eyu-db --local --file=./seed.sql
-npx wrangler dev                       # API → http://127.0.0.1:8787
+cp worker/.dev.vars.example worker/.dev.vars   # Windows: copy worker\.dev.vars.example worker\.dev.vars
+node scripts/apply-sql.mjs --local             # 依次应用 schema / seed / seeds / migrations（幂等）
+node scripts/apply-sql.mjs --remote            # 同步到线上 D1（需 Token）
+cd worker && npx wrangler dev                  # API → http://127.0.0.1:8787
 
 # 2. 另开一个终端跑前端（/api 已代理到 8787）
 cd frontend && npm run dev             # → http://127.0.0.1:5173
@@ -105,8 +107,8 @@ node scripts/smoke-test.mjs                              # 打 https://eyu.pages
 BASE=http://127.0.0.1:8787 node scripts/smoke-test.mjs   # 打本地 Worker
 ```
 
-覆盖 11 项：注册、队列按频次发词、四种评级的调度结果、统计聚合、当前用户、
-非法评级被拒、未鉴权被拒、登出后令牌立即失效。
+覆盖 13 项：注册、队列按频次发词、单轮容量、四种评级的调度结果、统计聚合、当前用户、
+非法评级被拒、加练可突破每日额度、未鉴权被拒、登出后令牌立即失效。
 
 ---
 
@@ -175,7 +177,7 @@ CORS_ORIGINS = "https://eyu.pages.dev,https://你的自定义域名"
 | POST | `/api/auth/logout` | 注销（删除 KV 会话） |
 | GET | `/api/auth/me` | 当前用户 |
 | PATCH | `/api/auth/me` | 修改每日上限 / 时区 / 昵称 |
-| GET | `/api/study/queue?limit=20` | 今日队列：**到期复习优先，再按频次发新词** |
+| GET | `/api/study/queue?limit=30&extra=0` | 今日队列：**到期复习优先，再按频次发新词**；`extra=1` 为加练 |
 | POST | `/api/study/review` | 提交评级 `{ userCardId, rating, mode, elapsedMs }` |
 | GET | `/api/study/cards` | 词库浏览（分页 / 类型 / 关键词） |
 | GET | `/api/stats/overview?days=90` | 今日进度、连续天数、总量、热力图 |
@@ -202,6 +204,19 @@ CORS_ORIGINS = "https://eyu.pages.dev,https://你的自定义域名"
 
 **新词优先级**：`cards_master.frequency_rank` 升序，未学过的优先，且受 `daily_new_limit` 限制；
 **复习永远排在新词前面**（`GET /queue` 先取到期卡片，剩余名额才发新词）。
+
+### 学习强度
+
+| 旋钮 | 默认 | 说明 |
+| --- | --- | --- |
+| 词库总量 | **340 张**（280 词 / 35 语块 / 25 句型） | 按频次排序发放，够学 3 个月以上 |
+| 每日新词 | **20 张**（可在「我的」里调到 0–100） | 存量用户由 `migrations/001` 从 10 提到 20 |
+| 单轮会话 | **30 张** | 复习多时新词会被挤压，这是刻意的 |
+| 每日复习上限 | **100 张** | 到期卡片太多时的保护阈值 |
+| 加练 | `?extra=1` | 突破当日新词额度，上限 `max(每日新词 × 3, 60)`；完成页有「继续加练」入口 |
+
+> 一轮学完不想到此为止？点「继续加练」会再发 30 张（今日新词总额度最多到 60），
+> 学过的卡片第二天按 SM-2 曲线回到复习队列。
 
 ---
 

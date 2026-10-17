@@ -84,7 +84,10 @@ function toDto(row: DueCardRow): CardDto {
  */
 app.get('/queue', requireAuth, async (c) => {
   const user = c.get('user') as AuthUser;
-  const limit = intParam(c.req.query('limit'), 20, 1, 60);
+  const limit = intParam(c.req.query('limit'), 30, 1, 60);
+  /** extra=1 为「加练」：允许突破每日新词额度，上限为 dailyNewLimit × 3（至少 60） */
+  const extra = c.req.query('extra') === '1';
+  const newCap = extra ? Math.max(user.dailyNewLimit * 3, 60) : user.dailyNewLimit;
   const now = new Date();
   const nowIso = now.toISOString();
   const todayKey = localDateKey(now, user.timezone);
@@ -103,14 +106,14 @@ app.get('/queue', requireAuth, async (c) => {
   const due = dueRows.results ?? [];
   let newCards: CardDto[] = [];
 
-  if (due.length < limit && user.dailyNewLimit > 0) {
+  if (due.length < limit && newCap > 0) {
     const introduced = await c.env.DB.prepare(
       `SELECT COUNT(*) AS n FROM user_cards WHERE user_id = ?1 AND first_seen_date = ?2`
     )
       .bind(user.id, todayKey)
       .first<{ n: number }>();
 
-    const quota = Math.max(0, user.dailyNewLimit - (introduced?.n ?? 0));
+    const quota = Math.max(0, newCap - (introduced?.n ?? 0));
     const wantNew = Math.min(quota, limit - due.length);
 
     if (wantNew > 0) {
@@ -165,6 +168,10 @@ app.get('/queue', requireAuth, async (c) => {
       dueInQueue: due.length,
       newInQueue: newCards.length,
       dailyNewLimit: user.dailyNewLimit,
+      newCap,
+      /** 加练模式下可达的新词上限，前端用来提示「今日额度 X → 可到 Y」 */
+      extraNewCap: Math.max(user.dailyNewLimit * 3, 60),
+      extra,
       dailyReviewLimit: user.dailyReviewLimit,
     },
   });

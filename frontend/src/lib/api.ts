@@ -116,6 +116,9 @@ export interface QueueResponse {
     dueInQueue: number;
     newInQueue: number;
     dailyNewLimit: number;
+    newCap: number;
+    extraNewCap: number;
+    extra: boolean;
     dailyReviewLimit: number;
   };
 }
@@ -182,7 +185,8 @@ export const api = {
   updateSettings: (body: Partial<Pick<User, 'dailyNewLimit' | 'dailyReviewLimit' | 'timezone' | 'displayName'>>) =>
     request<{ user: User }>('/api/auth/me', { method: 'PATCH', body }),
 
-  queue: (limit = 20) => request<QueueResponse>(`/api/study/queue?limit=${limit}`),
+  queue: (limit = 30, extra = false) =>
+    request<QueueResponse>(`/api/study/queue?limit=${limit}${extra ? '&extra=1' : ''}`),
 
   review: (body: { userCardId: string; rating: 0 | 1 | 2 | 3; mode?: string; elapsedMs?: number }) =>
     request<ReviewResponse>('/api/study/review', { method: 'POST', body }),
