@@ -9,7 +9,7 @@
  * 打印生成的题干，人工看一眼有没有挖错空、切错词。
  */
 
-const BASE = process.env.BASE || 'https://eyu.pages.dev';
+const BASE = process.env.BASE || 'https://eyu.letsgo.cc.cd';
 const SAMPLE = Number(process.env.SAMPLE || 12);
 
 async function call(path, { method = 'GET', body, token } = {}) {

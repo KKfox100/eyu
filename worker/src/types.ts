@@ -14,6 +14,8 @@ export interface Env {
   ACCESS_TOKEN_TTL: string;
   DEFAULT_TZ: string;
   CORS_ORIGINS: string;
+  /** 提醒文案里带的站点地址；不配就用 lib/webhook.ts 里的默认值 */
+  SITE_URL?: string;
   PBKDF2_ITERATIONS?: string;
 }
 

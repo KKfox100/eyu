@@ -120,12 +120,24 @@ test('webhook 类型识别与报文格式', () => {
   });
 });
 
-test('提醒文案：带到期数与链接', () => {
+test('提醒文案：带到期数与站点链接', () => {
   const text = buildReminderText({ name: '小林', due: 12, done: 0, streak: 7 });
   assert.ok(text.includes('小林'));
   assert.ok(text.includes('12 张'));
   assert.ok(text.includes('7 天'));
-  assert.ok(text.includes('https://eyu.pages.dev'));
+  assert.ok(text.includes('https://'));
+});
+
+test('提醒文案：站点地址可覆盖，换域名不用改代码', () => {
+  const text = buildReminderText({
+    name: null,
+    due: 3,
+    done: 0,
+    streak: 0,
+    siteUrl: 'https://eyu.example.com',
+  });
+  assert.ok(text.includes('https://eyu.example.com'));
+  assert.ok(!text.includes('letsgo'));
 });
 
 test('提醒文案：没到期卡时说学新词', () => {

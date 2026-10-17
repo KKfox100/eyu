@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const PORT = 9333;
-const BASE = process.env.BASE || 'https://eyu.pages.dev';
+const BASE = process.env.BASE || 'https://eyu.letsgo.cc.cd';
 const OUT = 'shots';
 mkdirSync(OUT, { recursive: true });
 
@@ -152,7 +152,7 @@ try {
   const ok = await evaluate(`(async () => {
     const start = Date.now();
     while (Date.now() - start < 90000) {
-      const body = document.body.innerText;
+      const body = (document.body?.innerText || '');
       if (body.includes('挑出')) return 'cards';
       if (body.includes('失败') || body.includes('不支持') || body.includes('至少')) return 'error:' + body.slice(0, 200);
       await new Promise(r => setTimeout(r, 500));
@@ -176,7 +176,7 @@ try {
   })()`);
   console.log('   按钮:', importLabel);
   console.log('   点击:', await evaluate(CLICK('导入选中的')));
-  await waitFor(`document.body.innerText.includes('已导入')`, 30000, '导入成功');
+  await waitFor(`(document.body?.innerText || '').includes('已导入')`, 30000, '导入成功');
   const doneText = await evaluate(`(() => {
     const el = [...document.querySelectorAll('p')].find(n => n.textContent.includes('已导入'));
     return el ? el.parentElement.innerText.replace(/\\n+/g, ' | ') : '';
@@ -188,7 +188,7 @@ try {
   await evaluate(CLICK('去词库看看'));
   await sleep(2000);
   const lib = await evaluate(`(() => {
-    const body = document.body.innerText;
+    const body = (document.body?.innerText || '');
     const m = body.match(/共 (\\d+) 张卡片/);
     return m ? m[1] : 'n/a';
   })()`);

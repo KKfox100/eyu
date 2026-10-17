@@ -3,13 +3,13 @@
  * 线上冒烟测试
  *
  * 用法：
- *   node scripts/smoke-test.mjs                        # 默认打 https://eyu.pages.dev
+ *   node scripts/smoke-test.mjs                        # 默认打 https://eyu.letsgo.cc.cd
  *   BASE=http://127.0.0.1:8787 node scripts/smoke-test.mjs   # 打本地 Worker
  *
  * 覆盖：注册 → 队列 → 四种评级 → 统计 → 当前用户 → 登出后令牌失效
  */
 
-const BASE = (process.env.BASE || 'https://eyu.pages.dev').replace(/\/$/, '');
+const BASE = (process.env.BASE || 'https://eyu.letsgo.cc.cd').replace(/\/$/, '');
 
 const readJson = async (response) => {
   const text = await response.text();

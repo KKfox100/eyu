@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const PORT = 9334;
-const BASE = process.env.BASE || 'https://eyu.pages.dev';
+const BASE = process.env.BASE || 'https://eyu.letsgo.cc.cd';
 const OUT = 'shots';
 mkdirSync(OUT, { recursive: true });
 
@@ -128,7 +128,7 @@ try {
   if (reg !== 'ok') throw new Error('注册失败');
 
   await send('Page.navigate', { url: `${BASE}/me` });
-  await waitFor(`document.body.innerText.includes('每日提醒')`, 20000, '「我的」页渲染');
+  await waitFor(`(document.body?.innerText || '').includes('每日提醒')`, 20000, '「我的」页渲染');
   console.log('   有「每日提醒」区块: true');
   await shot('me-1-default');
 
@@ -142,12 +142,12 @@ try {
   }
   console.log('   现在 aria-checked:', await evaluate(`document.querySelector('[role="switch"]')?.getAttribute('aria-checked')`));
   console.log('   出现 webhook 输入框:', await evaluate(`!!document.querySelector('input[type="url"]')`));
-  console.log('   未填时提示:', await evaluate(`document.body.innerText.includes('提醒发不出去')`));
+  console.log('   未填时提示:', await evaluate(`(document.body?.innerText || '').includes('提醒发不出去')`));
 
   console.log('3) 先填个非法域名，应当被拒');
   console.log('   填值:', await evaluate(SET_INPUT('https://evil.example.com/hook')));
   await evaluate(CLICK('保存提醒设置'));
-  await waitFor(`document.body.innerText.includes('只支持企业微信')`, 15000, '非法域名提示');
+  await waitFor(`(document.body?.innerText || '').includes('只支持企业微信')`, 15000, '非法域名提示');
   console.log('   提示:', await evaluate(`(() => {
     const el = [...document.querySelectorAll('p')].find(n => n.textContent.includes('只支持企业微信'));
     return el ? el.textContent.trim() : '';
@@ -157,7 +157,7 @@ try {
   console.log('4) 换成合法地址');
   await evaluate(SET_INPUT('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test-only'));
   await evaluate(CLICK('保存提醒设置'));
-  await waitFor(`document.body.innerText.includes('已保存')`, 15000, '保存成功提示');
+  await waitFor(`(document.body?.innerText || '').includes('已保存')`, 15000, '保存成功提示');
   await shot('me-3-saved');
 
   console.log('5) 回读接口确认落库');

@@ -46,12 +46,16 @@ export function buildWebhookPayload(kind: WebhookKind, text: string): unknown {
   return { msgtype: 'text', text: { content: text } };
 }
 
+/** 站点地址：换域名时改这里（或配 SITE_URL 环境变量） */
+export const DEFAULT_SITE_URL = 'https://eyu.letsgo.cc.cd';
+
 /** 提醒文案：带上到期数量和今日进度，让人有点击的欲望 */
 export function buildReminderText(input: {
   name: string | null;
   due: number;
   done: number;
   streak: number;
+  siteUrl?: string;
 }): string {
   const who = input.name?.trim() || '同学';
   const lines = [`${who}，今天的英语还差一点 📚`];
@@ -64,7 +68,7 @@ export function buildReminderText(input: {
 
   if (input.done > 0) lines.push(`今天已经复习 ${input.done} 张，别断在最后一步。`);
   if (input.streak > 0) lines.push(`连续打卡 ${input.streak} 天，继续保持。`);
-  lines.push('https://eyu.pages.dev');
+  lines.push(input.siteUrl?.trim() || DEFAULT_SITE_URL);
 
   return lines.join('\n');
 }

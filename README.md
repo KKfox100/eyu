@@ -7,13 +7,17 @@
 
 | 服务 | 地址 |
 | --- | --- |
-| 应用（前端 + `/api` 同源代理） | **https://eyu.pages.dev** |
+| 应用（自定义域，推荐） | **https://eyu.letsgo.cc.cd** |
+| 应用（Cloudflare 默认域） | https://eyu.pages.dev |
 | API 源站（Worker） | https://eyu-api.2412.workers.dev |
 
+> 两个域名指向同一个 Pages 项目，`/api/*` 都走同源代理，用哪个都行。
+> 自定义域更短、好记，适合分享；`*.pages.dev` 留作备用（万一自定义域 DNS 出问题）。
+
 > **为什么要加一层 Pages Functions 代理**：国内网络对 `*.workers.dev` 普遍存在 DNS 污染
-> （实测解析到 `103.252.115.53` 后连接超时），而 `*.pages.dev` 可以直连。
+> （实测解析到 `103.252.115.53` 后连接超时），而 `*.pages.dev` 和自定义域可以直连。
 > `frontend/functions/api/[[path]].ts` 把 `/api/*` 从 Pages 边缘转发到 Worker，
-> 浏览器只访问 `eyu.pages.dev` 一个域 —— 顺带把 CORS 也省了。
+> 浏览器只访问一个域 —— 顺带把 CORS 也省了。
 > 若你的网络能直连 workers.dev，也可以把 `VITE_API_BASE` 指向 Worker 域名，走原生跨域。
 
 ---
@@ -116,8 +120,9 @@ cd worker && npm test                  # node --experimental-strip-types --test
 ## 线上验证
 
 ```bash
-node scripts/smoke-test.mjs                              # 打 https://eyu.pages.dev
-BASE=http://127.0.0.1:8787 node scripts/smoke-test.mjs   # 打本地 Worker
+node scripts/smoke-test.mjs                              # 打 https://eyu.letsgo.cc.cd
+BASE=https://eyu.pages.dev node scripts/smoke-test.mjs    # 换域名打
+BASE=http://127.0.0.1:8787 node scripts/smoke-test.mjs    # 打本地 Worker
 
 node scripts/cdp-clip.mjs     # 真实浏览器：示例文本 → 解析 → 导入，截图存 shots/
 node scripts/cdp-me.mjs       # 真实浏览器：提醒开关 → 非法域名被拒 → 保存落库
@@ -175,13 +180,42 @@ npx wrangler pages deploy dist --project-name=eyu --branch=main
 > 如果你能直连 `*.workers.dev`，也可以改成跨域模式：
 > `VITE_API_BASE=https://eyu-api.<子域>.workers.dev npm run build`，并删掉 `frontend/functions/`。
 
-### 4. 放行跨域
+### 4. 绑自定义域（可选）
 
-拿到 Pages 域名后，把它加进 `worker/wrangler.toml` 的 `CORS_ORIGINS`，重新 `npm run deploy:api`：
+在 Cloudflare 控制台 **Workers & Pages → eyu → Custom domains → Set up a custom domain**，
+填 `eyu.你的域名`，按提示加一条 CNAME 指向 `eyu.pages.dev`。证书由 Cloudflare 自动签发，
+一般几分钟生效。
+
+绑好之后要同步三处，否则提醒消息里的链接还是旧域名：
+
+| 位置 | 改什么 |
+| --- | --- |
+| `worker/wrangler.toml` | `SITE_URL`（提醒文案里的链接） |
+| `worker/wrangler.toml` | `CORS_ORIGINS`（加新域，旧域留着） |
+| 各验证脚本 | 默认 `BASE`（或跑的时候用 `BASE=...` 覆盖） |
 
 ```toml
-CORS_ORIGINS = "https://eyu.pages.dev,https://你的自定义域名"
+SITE_URL     = "https://eyu.letsgo.cc.cd"
+CORS_ORIGINS = "https://eyu.letsgo.cc.cd,https://eyu.pages.dev,http://localhost:5173"
 ```
+
+改完 `npm run deploy:api`。前端不用重新构建 —— 页面里没有写死域名，
+`/api/*` 走的是相对路径，换域自然跟着走。
+
+> PWA 换域后要**重新安装**：Service Worker 是按 origin 隔离的，
+> 旧域的桌面图标还是旧域的缓存。
+
+### 5. 放行跨域
+
+只有「前端直连 Worker」的模式才需要。同源代理模式（默认）下 CORS 不参与，
+但 `CORS_ORIGINS` 还是建议填全，方便临时用 `curl` 或别的前端调接口。
+
+```toml
+CORS_ORIGINS = "https://eyu.letsgo.cc.cd,https://eyu.pages.dev"
+```
+
+> 不在白名单的来源**不会报错**，只是响应里没有 `Access-Control-Allow-Origin` ——
+> 浏览器侧表现为跨域被拦，服务端日志里看不出异常。
 
 ---
 
@@ -360,15 +394,16 @@ node scripts/cdp-clip.mjs     # 浏览器里跑一遍并截图
 > （`http://169.254.169.254/` 之类）。`isAllowedWebhook()` 要求 https + 域名在白名单内，
 > 非法地址在保存时就被拒，不会等到 cron 跑起来才发现。
 
-提醒文案长这样：
+提醒文案长这样（`buildReminderText()`，纯函数）：
 
 ```
-e语 · 今天的复习还没开始
-
-小林，有 12 张卡片到期了，大约 6 分钟。
-连续 7 天，别断在这里。
-https://eyu.pages.dev
+小林，今天的英语还差一点 📚
+有 12 张卡片到复习时间了，过一遍大约 5 分钟。
+连续打卡 7 天，继续保持。
+https://eyu.letsgo.cc.cd
 ```
+
+最后那行读的是 `SITE_URL`，换域名只改 `wrangler.toml`，不用动代码。
 
 ---
 

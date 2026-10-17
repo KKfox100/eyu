@@ -3,7 +3,7 @@
  * 用法：node scripts/check-clip.mjs
  *       BASE=http://127.0.0.1:8787 node scripts/check-clip.mjs
  */
-const BASE = process.env.BASE || 'https://eyu.pages.dev';
+const BASE = process.env.BASE || 'https://eyu.letsgo.cc.cd';
 
 async function call(path, options = {}) {
   const response = await fetch(BASE + path, {

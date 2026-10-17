@@ -164,6 +164,7 @@ export default {
             due: dueCount,
             done: doneCount,
             streak: streakRow?.n ?? 0,
+            siteUrl: env.SITE_URL,
           });
 
           try {

@@ -23,8 +23,11 @@ ENVIRONMENT      = "production"
 JWT_ISSUER       = "eyu"
 ACCESS_TOKEN_TTL = "604800"          # 7 天（秒）
 DEFAULT_TZ       = "Asia/Shanghai"
-# 允许跨域的前端来源，逗号分隔；部署 Pages 后把正式域名加进来
-CORS_ORIGINS     = "https://eyu.pages.dev,http://localhost:5173,http://127.0.0.1:5173"
+# 提醒消息里带的站点地址（换域名只改这里）
+SITE_URL         = "https://eyu.letsgo.cc.cd"
+# 允许跨域的前端来源，逗号分隔
+# eyu.letsgo.cc.cd 是自定义域（Pages 上绑的），eyu.pages.dev 是默认域，两个都留着
+CORS_ORIGINS     = "https://eyu.letsgo.cc.cd,https://eyu.pages.dev,http://localhost:5173,http://127.0.0.1:5173"
 
 # ------------------------------------------------------------
 # D1 · 关系型主库
