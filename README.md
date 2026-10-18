@@ -88,6 +88,7 @@ e语/
    ├─ apply-sql.mjs          # 按顺序幂等应用全部 SQL（本地 / --remote）
    ├─ check-exercise.mjs     # 抽样打印生成的练习题，人工看挖空/切词对不对
    ├─ smoke-test.mjs         # 线上接口冒烟（注册→队列→评级→统计→加练→登出）
+   ├─ check-queue-orphan.mjs # 队列孤儿卡回归（连拉两次必须拿到同一批卡）
    ├─ cdp-clip.mjs           # 真实浏览器跑剪藏全流程并截图
    └─ cdp-me.mjs             # 真实浏览器验证提醒设置（含非法域名被拒）
 ```
@@ -231,7 +232,7 @@ CORS_ORIGINS = "https://eyu.letsgo.cc.cd,https://eyu.pages.dev"
 | POST | `/api/auth/logout` | 注销（删除 KV 会话） |
 | GET | `/api/auth/me` | 当前用户 |
 | PATCH | `/api/auth/me` | 修改每日上限 / 时区 / 昵称 / 提醒开关与 webhook |
-| GET | `/api/study/queue?limit=30&extra=0` | 今日队列：**到期复习优先，再按频次发新词**；`extra=1` 为加练 |
+| GET | `/api/study/queue?limit=30&extra=0` | 今日队列：**到期复习 → 已发放未学完 → 按频次发新词**；`extra=1` 为加练 |
 | GET | `/api/study/exercise?userCardId=…&mode=auto` | 生成练习题（`auto` / `cloze` / `order`）；出不了题返回 `available:false` |
 | POST | `/api/study/review` | 提交评级 `{ userCardId, rating, mode, elapsedMs }` |
 | GET | `/api/study/cards` | 词库浏览（分页 / 类型 / 关键词） |
@@ -274,6 +275,24 @@ CORS_ORIGINS = "https://eyu.letsgo.cc.cd,https://eyu.pages.dev"
 
 > 一轮学完不想到此为止？点「继续加练」会再发 30 张（今日新词总额度最多到 60），
 > 学过的卡片第二天按 SM-2 曲线回到复习队列。
+
+### 队列的三档顺序（别把中间那档删了）
+
+`GET /api/study/queue` 返回的是三段的拼接，顺序就是优先级：
+
+| 顺序 | 来源 | SQL 条件 |
+| --- | --- | --- |
+| ① 到期复习 | `state` 为 `learning` / `review` 且已过 `next_review_at` | `state IN ('learning','review') AND next_review_at <= now` |
+| ② **已发放未学完** | 上次拉了队列但一张没学就退出，留下的 `state='new'` | `state = 'new'` |
+| ③ 全新卡 | 从未引入过，受当日额度约束 | `uc.id IS NULL`（`LEFT JOIN user_cards`） |
+
+第 ② 档曾经漏掉过，后果很严重：新卡一发放就会写成 `state='new'` 的 `user_cards` 行，
+但这类卡既不在 ① 里（`state` 不含 `new`），也不在 ③ 里（`WHERE uc.id IS NULL` 排除了已引入的），
+于是**点开队列看一眼就退出 = 这批卡永久消失**，还会谎报「今日新词额度已用完」。
+`scripts/check-queue-orphan.mjs` 是这条的回归测试（连拉两次队列必须拿到同一批卡）。
+
+另外，额度按**引入**扣、不按**学完**扣：`newQuotaLeft = newCap - 今日 first_seen_date 计数`。
+所以「拉过没学」不会白送新卡，第二天进来还是那批卡。
 
 ---
 

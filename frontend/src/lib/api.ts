@@ -116,9 +116,17 @@ export interface QueueResponse {
   summary: {
     dueNow: number;
     dueInQueue: number;
+    /** 已发放但还没学完的新卡（「点开队列没学就退出」留下的，会被重新排进队列） */
+    pendingInQueue: number;
     newInQueue: number;
     dailyNewLimit: number;
     newCap: number;
+    /** 今日已引入的新卡数（额度按「引入」扣，不按「学完」扣） */
+    newIntroducedToday: number;
+    /** 今日还能引入多少张全新卡 */
+    newQuotaLeft: number;
+    /** 词库里还剩多少张从未学过的卡 */
+    newDeckLeft: number;
     extraNewCap: number;
     extra: boolean;
     dailyReviewLimit: number;

@@ -26,6 +26,7 @@ const FILES = [
   'seeds/grammar-2.sql',
   'migrations/001-bump-daily-new-limit.sql',
   'migrations/002-reminder.sql',
+  'migrations/003-pending-new-index.sql',
 ];
 
 /**

@@ -48,6 +48,27 @@ const accuracy = computed(() => {
   return Math.round(((tally.value.good + tally.value.easy) / reviewed.value) * 100);
 });
 
+/**
+ * 空队列的真实原因 —— 必须分开说。
+ * 旧文案判断的是 `summary.newCap > 0`，而 newCap 默认就是 dailyNewLimit（20），几乎恒为真，
+ * 于是不管什么原因都甩一句「今日新词额度已用完」，属于误导。
+ */
+const emptyHint = computed(() => {
+  const s = summary.value;
+  if (!s) return '所有卡片都在记忆曲线上，到期后会自动出现';
+  if (s.pendingInQueue > 0) return `还有 ${s.pendingInQueue} 张卡没学完，重新进入即可继续`;
+  if (s.newDeckLeft === 0) return '词库里的卡片都学过了，接下来只需按时复习';
+  if (s.newQuotaLeft === 0) return '今日新词额度已用完，明天继续，或稍后复习到期卡片';
+  return '所有卡片都在记忆曲线上，到期后会自动出现';
+});
+
+/** 今日额度确实用完了、但加练还能再拿卡时，空队列页给一个入口 */
+const canExtra = computed(() => {
+  const s = summary.value;
+  if (!s || isExtra.value) return false;
+  return s.newQuotaLeft === 0 && s.newDeckLeft > 0 && s.extraNewCap > s.newCap;
+});
+
 /** 朗读目标：有练习题就用题目的完整句子，否则按卡片类型挑（单词/句型读例句） */
 const speakText = computed(() => {
   const exercise = practice.value;
@@ -334,7 +355,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
           共复习 {{ reviewed }} 张<template v-if="accuracy !== null"> · 正确率 {{ accuracy }}%</template>
         </template>
         <template v-else>
-          {{ summary && summary.newCap > 0 ? '今日新词额度已用完，明天继续，或稍后复习到期卡片' : '所有卡片都在记忆曲线上，到期后会自动出现' }}
+          {{ emptyHint }}
         </template>
       </p>
 
@@ -362,6 +383,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
           继续加练
           <span class="text-[11px] font-normal text-white/70">
             今日额度 {{ summary?.dailyNewLimit ?? 0 }} → 可到 {{ summary?.extraNewCap ?? 60 }}
+          </span>
+        </button>
+        <button v-else-if="canExtra" class="btn-primary w-full" @click="loadQueue(true)">
+          加练一轮
+          <span class="text-[11px] font-normal text-white/70">
+            可再学 {{ summary?.newDeckLeft ?? 0 }} 张新卡
           </span>
         </button>
         <button class="btn-ghost w-full" @click="router.push('/')">回到今日</button>

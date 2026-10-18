@@ -80,8 +80,14 @@ function toDto(row: DueCardRow): CardDto {
 
 /**
  * GET /api/study/queue
- * 生成今日学习队列：复习优先于新词。
+ * 生成今日学习队列：到期复习 → 已发放未学完的新卡 → 全新卡。
  * 新词按 frequency_rank 升序发放（频次越高越先学），并受 daily_new_limit 约束。
+ *
+ * ⚠️ 中间那一档（state='new'）是必须的，不是冗余：
+ *   新卡一发放就会写成 state='new' 的 user_cards 行，但如果用户「点开队列看一眼就退出」，
+ *   这些卡既不在到期查询里（state 不含 'new'），也不在全新卡查询里
+ *   （`WHERE uc.id IS NULL` 排除了已引入的）—— 于是变成永久孤儿卡，再也取不回来。
+ *   把它们当作「待学」重新排进队列，才能保证「今天没学完，回来还在」。
  */
 app.get('/queue', requireAuth, async (c) => {
   const user = c.get('user') as AuthUser;
@@ -93,6 +99,7 @@ app.get('/queue', requireAuth, async (c) => {
   const nowIso = now.toISOString();
   const todayKey = localDateKey(now, user.timezone);
 
+  // ① 到期复习：优先级最高
   const dueRows = await c.env.DB.prepare(
     `SELECT * FROM v_due_cards
       WHERE user_id = ?1
@@ -105,71 +112,101 @@ app.get('/queue', requireAuth, async (c) => {
     .all<DueCardRow>();
 
   const due = dueRows.results ?? [];
+
+  // ② 已发放但还没学过的卡：排在新卡前面，避免孤儿
+  const pendingRows = await c.env.DB.prepare(
+    `SELECT * FROM v_due_cards
+      WHERE user_id = ?1 AND state = 'new'
+      ORDER BY (frequency_rank IS NULL) ASC, frequency_rank ASC
+      LIMIT ?2`
+  )
+    .bind(user.id, Math.max(0, limit - due.length))
+    .all<DueCardRow>();
+
+  const pending = pendingRows.results ?? [];
   let newCards: CardDto[] = [];
 
-  if (due.length < limit && newCap > 0) {
-    const introduced = await c.env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM user_cards WHERE user_id = ?1 AND first_seen_date = ?2`
+  // 今日已引入的新卡数（含还在 state='new' 的）—— 额度按「引入」算，不按「学完」算
+  const introduced = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM user_cards WHERE user_id = ?1 AND first_seen_date = ?2`
+  )
+    .bind(user.id, todayKey)
+    .first<{ n: number }>();
+
+  const introducedToday = introduced?.n ?? 0;
+  const newQuotaLeft = Math.max(0, newCap - introducedToday);
+
+  const room = limit - due.length - pending.length;
+  if (room > 0 && newQuotaLeft > 0) {
+    const wantNew = Math.min(newQuotaLeft, room);
+    const candidates = await c.env.DB.prepare(
+      `SELECT cm.* FROM cards_master cm
+         LEFT JOIN user_cards uc
+           ON uc.card_id = cm.id AND uc.user_id = ?1
+        WHERE uc.id IS NULL
+          AND (cm.owner_id IS NULL OR cm.owner_id = ?1)
+        ORDER BY (cm.frequency_rank IS NULL) ASC, cm.frequency_rank ASC, cm.created_at ASC
+        LIMIT ?2`
     )
-      .bind(user.id, todayKey)
-      .first<{ n: number }>();
+      .bind(user.id, wantNew)
+      .all<DueCardRow>();
 
-    const quota = Math.max(0, newCap - (introduced?.n ?? 0));
-    const wantNew = Math.min(quota, limit - due.length);
+    const rows = candidates.results ?? [];
+    if (rows.length) {
+      const inserts = rows.map((row) =>
+        c.env.DB.prepare(
+          `INSERT OR IGNORE INTO user_cards
+             (id, user_id, card_id, state, stage, easiness_factor, interval_days,
+              next_review_at, first_seen_at, first_seen_date, reps, lapses)
+           VALUES (?1, ?2, ?3, 'new', 0, 2.5, 0, ?4, ?4, ?5, 0, 0)`
+        ).bind(newId(), user.id, row.id, nowIso, todayKey)
+      );
+      await c.env.DB.batch(inserts);
 
-    if (wantNew > 0) {
-      const candidates = await c.env.DB.prepare(
-        `SELECT cm.* FROM cards_master cm
-           LEFT JOIN user_cards uc
-             ON uc.card_id = cm.id AND uc.user_id = ?1
-          WHERE uc.id IS NULL
-            AND (cm.owner_id IS NULL OR cm.owner_id = ?1)
-          ORDER BY (cm.frequency_rank IS NULL) ASC, cm.frequency_rank ASC, cm.created_at ASC
-          LIMIT ?2`
+      // 回读刚插入的行，拿到真实的 user_card_id
+      const placeholders = rows.map((_, i) => `?${i + 2}`).join(', ');
+      const created = await c.env.DB.prepare(
+        `SELECT * FROM v_due_cards WHERE user_id = ?1 AND card_id IN (${placeholders})`
       )
-        .bind(user.id, wantNew)
+        .bind(user.id, ...rows.map((r) => r.id))
         .all<DueCardRow>();
-
-      const rows = candidates.results ?? [];
-      if (rows.length) {
-        const inserts = rows.map((row) =>
-          c.env.DB.prepare(
-            `INSERT OR IGNORE INTO user_cards
-               (id, user_id, card_id, state, stage, easiness_factor, interval_days,
-                next_review_at, first_seen_at, first_seen_date, reps, lapses)
-             VALUES (?1, ?2, ?3, 'new', 0, 2.5, 0, ?4, ?4, ?5, 0, 0)`
-          ).bind(newId(), user.id, row.id, nowIso, todayKey)
-        );
-        await c.env.DB.batch(inserts);
-
-        // 回读刚插入的行，拿到真实的 user_card_id
-        const placeholders = rows.map((_, i) => `?${i + 2}`).join(', ');
-        const created = await c.env.DB.prepare(
-          `SELECT * FROM v_due_cards WHERE user_id = ?1 AND card_id IN (${placeholders})`
-        )
-          .bind(user.id, ...rows.map((r) => r.id))
-          .all<DueCardRow>();
-        newCards = (created.results ?? []).map(toDto);
-      }
+      newCards = (created.results ?? []).map(toDto);
     }
   }
 
-  const totalDue = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM user_cards
-      WHERE user_id = ?1 AND state IN ('learning', 'review') AND next_review_at <= ?2`
-  )
-    .bind(user.id, nowIso)
-    .first<{ n: number }>();
+  const [totalDue, deckLeftRow] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM user_cards
+        WHERE user_id = ?1 AND state IN ('learning', 'review') AND next_review_at <= ?2`
+    )
+      .bind(user.id, nowIso)
+      .first<{ n: number }>(),
+    // 词库里还剩多少张从未学过的卡：用来区分「额度用完」和「词库学完了」两种空队列原因
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM cards_master cm
+         LEFT JOIN user_cards uc ON uc.card_id = cm.id AND uc.user_id = ?1
+        WHERE uc.id IS NULL AND (cm.owner_id IS NULL OR cm.owner_id = ?1)`
+    )
+      .bind(user.id)
+      .first<{ n: number }>(),
+  ]);
 
   return jsonOk(c, {
     today: todayKey,
-    queue: [...due.map(toDto), ...newCards],
+    queue: [...due.map(toDto), ...pending.map(toDto), ...newCards],
     summary: {
       dueNow: totalDue?.n ?? due.length,
       dueInQueue: due.length,
+      pendingInQueue: pending.length,
       newInQueue: newCards.length,
       dailyNewLimit: user.dailyNewLimit,
       newCap,
+      /** 今日已引入的新卡数（含还没学完的），额度按「引入」扣减 */
+      newIntroducedToday: introducedToday,
+      /** 今日还能引入多少张全新卡（已扣掉今日已引入的） */
+      newQuotaLeft,
+      /** 词库里还剩多少张从未学过的卡；为 0 说明是「词库学完了」而不是「额度用完」 */
+      newDeckLeft: deckLeftRow?.n ?? 0,
       /** 加练模式下可达的新词上限，前端用来提示「今日额度 X → 可到 Y」 */
       extraNewCap: Math.max(user.dailyNewLimit * 3, 60),
       extra,

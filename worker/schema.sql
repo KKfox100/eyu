@@ -101,6 +101,10 @@ CREATE INDEX IF NOT EXISTS idx_user_cards_due
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_cards_unique
   ON user_cards(user_id, card_id);
 
+-- 待学新卡：/queue 按 state 捞「已发放但没学完」的卡
+CREATE INDEX IF NOT EXISTS idx_user_cards_state
+  ON user_cards(user_id, state);
+
 -- 新词发放：按频次优先级取未学卡片
 CREATE INDEX IF NOT EXISTS idx_cards_master_rank
   ON cards_master(type, frequency_rank);
