@@ -294,18 +294,20 @@ export function speakSynth(
 }
 
 // ============================================================
-// 云端神经 TTS（Edge 神经语音，经 Worker 转发，更自然）
+// 云端神经 TTS（Workers AI · Deepgram Aura-2，经 Worker 转发，更自然）
+// 注：最初试过 OpenAI TTS，但 OpenAI 对 Cloudflare Worker 出网地区做了地域封禁
+// （403 unsupported_country_region_territory），跑不通；改用 Workers AI 自家网络。
 // ============================================================
 
-/** 默认云端音色：nova，自然清晰的英文女声（OpenAI TTS） */
+/** 默认云端音色：nova → Aura-2 的 luna（自然女声）。id 是稳定的 API 约定，后端再映射到具体说话人 */
 const CLOUD_VOICE_DEFAULT = 'nova';
 const CLOUD_VOICES = [
-  { id: 'nova', label: 'Nova · 自然女声' },
-  { id: 'shimmer', label: 'Shimmer · 柔和女声' },
-  { id: 'alloy', label: 'Alloy · 中性' },
-  { id: 'fable', label: 'Fable · 英式男声' },
-  { id: 'onyx', label: 'Onyx · 沉稳男声' },
-  { id: 'echo', label: 'Echo · 清亮男声' },
+  { id: 'nova', label: '自然女声（默认）' },
+  { id: 'shimmer', label: '柔和女声' },
+  { id: 'alloy', label: '中性女声' },
+  { id: 'fable', label: '清亮男声' },
+  { id: 'onyx', label: '沉稳男声' },
+  { id: 'echo', label: '明亮男声' },
 ] as const;
 
 export const cloudVoices = CLOUD_VOICES;
@@ -389,6 +391,7 @@ function playCloud(
       };
       el.onerror = () => {
         cleanup();
+        // 音频本身加载失败：说明这段 mp3 数据有问题，标记冷却避免反复兜圈子
         if (token === speakToken) {
           markCloudBroken();
           speakSynth(text, opts);
@@ -396,11 +399,10 @@ function playCloud(
       };
       el.src = objUrl;
       opts.onStart?.();
+      // 注意：play() 被拒绝（个别浏览器自动播放策略 / 无音频设备）只本次回退本地，
+      // 不标记云端「坏了」——接口是正常的，下次仍优先走云端。
       el.play().catch(() => {
-        if (token === speakToken) {
-          markCloudBroken();
-          speakSynth(text, opts);
-        }
+        if (token === speakToken) speakSynth(text, opts);
       });
     })
     .catch(() => {

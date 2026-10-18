@@ -350,23 +350,24 @@ SAMPLE=20 node scripts/check-exercise.mjs
 neural / enhanced / Samantha / Google US English / Microsoft 神经语音等质量关键词），
 自动挑最自然的那一个。这样不再用设备默认可能很机器人的语音，且无需用户手动选。
 
-### 云端神经 TTS（更自然，可选）
+### 云端神经 TTS（更自然，默认开启）
 
 浏览器自带 `speechSynthesis` 再怎么挑也有天花板（取决于设备 TTS 引擎）。
-想要接近真人的语调断句，就走**云端 TTS**：`worker/src/routes/tts.ts` 经后端调 OpenAI 语音合成
-（`tts-1-hd`），返回 mp3 给前端用 `<audio>` 播放。前端 `speakText()` 默认优先云端，
-失败（没配 key / 网络 / 限流）自动回退本地 `speechSynthesis`，保证「一定有声音」。
+想要接近真人的语调断句，就走**云端 TTS**：`worker/src/routes/tts.ts` 调 **Cloudflare Workers AI**
+的 Deepgram **Aura-2** 神经语音（`@cf/deepgram/aura-2-en`），返回 mp3 给前端用 `<audio>` 播放。
+前端 `speakText()` 默认优先云端，失败（网络 / 限流 / 播放被拒）自动回退本地 `speechSynthesis`，
+保证「一定有声音」。
 
-> 为什么用 OpenAI 而不是 Edge / Azure 神经语音？Cloudflare **免费计划禁止出站 WebSocket**，
-> 而 Edge / Azure 的 TTS 走 WebSocket 协议，在这套部署上跑不通。OpenAI TTS 是普通 HTTP，能用。
-> （实测：连 `wss://echo.websocket.events` 这类公开 WS 都直接 502，确认是计划限制。）
+**无需任何额外密钥**：复用 Worker 已有的 `[ai]` binding（Workers AI 免费额度每天 1 万 neurons，
+短句朗读绰绰有余）。部署 Worker 后，「我的 → 云端语音」开关即生效，可选自然女声 / 柔和女声 /
+中性女声 / 清亮男声 / 沉稳男声 / 明亮男声六种音色。
 
-**开启（一次性）**：在 `worker/` 下执行
-```bash
-npx wrangler secret put OPENAI_API_KEY   # 粘贴你的 sk-... 密钥
-```
-配好后，「我的 → 云端语音」开关即生效，可选音色 Nova / Shimmer / Alloy / Fable / Onyx / Echo。
-不配 key 也能正常用，只是走本地语音（上面的自主择优）。
+> **踩过的坑（别再走回头路）**
+> - **OpenAI TTS 在这套部署上用不了**：OpenAI 对 Cloudflare Worker 出网所在地区做了地域封禁，
+>   `/v1/audio/speech` 直接返回 `403 unsupported_country_region_territory`（不是 key 的问题）。
+>   排查时用 Worker 内的 `fetch` 探针才看到这条——本机 curl 反而会被沙箱代理挡成 502，容易误判。
+> - **Edge / Azure 神经语音也不行**：它们走 WebSocket，而 Cloudflare **免费计划禁止出站 WS**
+>   （连 `wss://echo.websocket.events` 都 502）。Workers AI 跑在 Cloudflare 自家网络里，HTTP 直连，没这问题。
 
 ---
 
