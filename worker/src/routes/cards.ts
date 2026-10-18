@@ -58,7 +58,7 @@ function parseTags(raw: string | null): string[] {
 function toDto(row: DueCardRow): CardDto {
   return {
     userCardId: row.user_card_id,
-    cardId: row.card_id,
+    cardId: row.card_id || row.id,
     type: row.type,
     content: row.content,
     phonetic: row.phonetic,
@@ -409,7 +409,7 @@ app.get('/cards', requireAuth, async (c) => {
 
   const listParams = [...params, pageSize, (page - 1) * pageSize];
   const rows = await c.env.DB.prepare(
-    `SELECT cm.*,
+    `SELECT cm.*, cm.id AS card_id,
             uc.id AS user_card_id, uc.user_id AS user_id, uc.state AS state,
             uc.stage AS stage, uc.easiness_factor AS easiness_factor,
             uc.interval_days AS interval_days, uc.next_review_at AS next_review_at,

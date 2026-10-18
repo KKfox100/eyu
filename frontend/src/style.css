@@ -7,19 +7,87 @@
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 
-  --color-brand-50: #eef2ff;
-  --color-brand-100: #e0e7ff;
-  --color-brand-200: #c7d2fe;
-  --color-brand-300: #a5b4fc;
-  --color-brand-400: #818cf8;
-  --color-brand-500: #6366f1;
-  --color-brand-600: #4f46e5;
-  --color-brand-700: #4338ca;
-  --color-brand-800: #3730a3;
-  --color-brand-900: #312e81;
+  /* ============================================================
+   * 莫兰迪色系（Morandi）：整体降饱和、掺灰调，柔和耐看不刺眼。
+   * 直接覆盖 Tailwind 的默认色阶，全站 bg-/text-/border- 自动生效。
+   * ============================================================ */
 
-  --color-ink: #0f172a;
-  --color-paper: #f8fafc;
+  /* 主色：雾蓝灰（取代原来的高饱和靛蓝） */
+  --color-brand-50: #eff2f5;
+  --color-brand-100: #dfe5ea;
+  --color-brand-200: #c4ced7;
+  --color-brand-300: #a5b3c0;
+  --color-brand-400: #8799a9;
+  --color-brand-500: #6f8294;
+  --color-brand-600: #5c6e80;
+  --color-brand-700: #4d5b6b;
+  --color-brand-800: #404c59;
+  --color-brand-900: #374049;
+
+  /* 中性：暖灰（取代冷调 slate，配合莫兰迪的温润感） */
+  --color-slate-50: #f7f6f3;
+  --color-slate-100: #efece7;
+  --color-slate-200: #e0dbd3;
+  --color-slate-300: #cbc3b8;
+  --color-slate-400: #a39a8d;
+  --color-slate-500: #7d7467;
+  --color-slate-600: #635b50;
+  --color-slate-700: #4f4840;
+  --color-slate-800: #3a3530;
+  --color-slate-900: #2b2723;
+  --color-slate-950: #1a1815;
+
+  /* 绿 → 鼠尾草灰绿 */
+  --color-emerald-50: #eef2ed;
+  --color-emerald-100: #dce4d8;
+  --color-emerald-200: #c1cfbb;
+  --color-emerald-300: #a3b79b;
+  --color-emerald-400: #88a07e;
+  --color-emerald-500: #728a67;
+  --color-emerald-600: #5d7354;
+  --color-emerald-700: #4c5e45;
+  --color-emerald-800: #3f4d3a;
+  --color-emerald-900: #353f31;
+
+  /* 黄 → 陶土米棕 */
+  --color-amber-50: #f7f2e9;
+  --color-amber-100: #ece1d1;
+  --color-amber-200: #dcc8aa;
+  --color-amber-300: #c8ad86;
+  --color-amber-400: #b6956a;
+  --color-amber-500: #a18157;
+  --color-amber-600: #876b48;
+  --color-amber-700: #6f583c;
+  --color-amber-800: #5b4933;
+  --color-amber-900: #4b3d2c;
+
+  /* 红 → 灰玫瑰 */
+  --color-rose-50: #f6efee;
+  --color-rose-100: #ecdbd9;
+  --color-rose-200: #dac0bd;
+  --color-rose-300: #c5a29e;
+  --color-rose-400: #b18883;
+  --color-rose-500: #9c726d;
+  --color-rose-600: #835d59;
+  --color-rose-700: #6d4d4a;
+  --color-rose-800: #59403e;
+  --color-rose-900: #493634;
+
+  /* 蓝 → 灰蓝 */
+  --color-sky-50: #eef2f4;
+  --color-sky-100: #dce4e8;
+  --color-sky-200: #c1cfd6;
+  --color-sky-300: #a1b5bf;
+  --color-sky-400: #8399a5;
+  --color-sky-500: #6d828e;
+  --color-sky-600: #5a6c76;
+  --color-sky-700: #4b5a62;
+  --color-sky-800: #3f4b51;
+  --color-sky-900: #363f44;
+
+  /* 纸张与墨色：暖白纸 + 暖炭灰字 */
+  --color-ink: #35322e;
+  --color-paper: #f5f3ef;
 }
 
 @layer base {

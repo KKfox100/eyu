@@ -78,12 +78,14 @@ function speak(card: StudyCard) {
   if (!ttsAvailable) return;
   const text =
     card.type === 'grammar' ? card.examples[0]?.en || card.content : card.content;
-  playingId.value = card.cardId;
+  // 防御：cardId 缺失时不要写进 playingId（否则 undefined === undefined 会让所有卡都显示「朗读中」）
+  const id = card.cardId;
+  if (id) playingId.value = id;
   speakText(text, {
     lang: 'en-US',
     rate: 0.92,
     onEnd: () => {
-      if (playingId.value === card.cardId) playingId.value = null;
+      if (id && playingId.value === id) playingId.value = null;
     },
   });
 }
